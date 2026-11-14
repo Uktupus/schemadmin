@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: ["1.26", "stable"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+
+      - name: Core module has no dependencies
+        run: test "$(go list -m all | wc -l)" -eq 1
+
+      - name: Format
+        run: test -z "$(gofmt -l .)"
+
+      - name: Unit tests
+        run: go vet ./... && go test -race ./...
+
+      - name: Integration tests (SQLite)
+        working-directory: integration
+        run: go vet ./... && go test -race ./...

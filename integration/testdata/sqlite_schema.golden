@@ -1,0 +1,75 @@
+table imports
+  pk id
+  col id INTEGER int null
+  col batch_id INTEGER int null
+  col source_id INTEGER int null
+  col user_email TEXT text null
+  fk (source_id) -> sources(id) delete=no action update=no action
+table measurements
+  pk id
+  col id INT int notnull
+  col sensor TEXT text notnull
+  col value REAL float notnull default=0.0
+  col payload ANY other null
+  col raw BLOB bytes null
+table post_tags
+  pk tag_code, post_id
+  col post_id INTEGER int notnull
+  col tag_code TEXT text notnull
+  col added_at DATETIME datetime null
+  fk (post_id) -> posts(id) delete=cascade update=no action
+  fk (tag_code) -> tags(code) delete=restrict update=cascade
+table posts
+  pk id
+  col id INTEGER int notnull auto
+  col author_id INTEGER int notnull
+  col reviewer_id INTEGER int null
+  col parent_id INTEGER int null
+  col title TEXT text notnull
+  col body TEXT text null
+  col status VARCHAR(20) enum notnull default='draft' enum=draft|published|archived
+  col word_count INTEGER int null generated
+  col slug TEXT text null generated
+  fk (author_id) -> users(id) delete=cascade update=no action
+  fk (reviewer_id) -> users(id) delete=set null update=cascade
+  fk (parent_id) -> posts(id) delete=restrict update=no action
+table settings
+  pk key
+  col key TEXT text null
+  col value - other null
+  col kind - other null default=NULL
+table tag_notes
+  pk id
+  col id INTEGER int notnull auto
+  col post_id INTEGER int notnull
+  col tag_code TEXT text notnull
+  col note TEXT text null
+  fk (post_id, tag_code) -> post_tags(post_id, tag_code) delete=cascade update=no action
+table tag_votes
+  pk -
+  col voter_id INTEGER int notnull
+  col tag_code TEXT text notnull
+  col post_id INTEGER int notnull
+  fk (voter_id) -> users(id) delete=no action update=no action
+  fk (tag_code, post_id) -> post_tags(tag_code, post_id) delete=no action update=no action
+table tags
+  pk code
+  col code TEXT text notnull
+  col label TEXT text notnull
+table users
+  pk id
+  col id INTEGER int notnull auto
+  col email TEXT text notnull
+  col name VARCHAR(100) string notnull default=''
+  col role TEXT enum notnull default='member' enum=admin|member|guest
+  col is_active BOOLEAN bool notnull default=1
+  col password_hash TEXT text notnull
+  col balance DECIMAL(10,2) decimal null
+  col rating REAL float null
+  col avatar BLOB bytes null
+  col settings JSON json null
+  col external_id UUID uuid null
+  col birthday DATE date null
+  col wake_time TIME time null
+  col created_at DATETIME datetime notnull default=CURRENT_TIMESTAMP
+  col updated_at TIMESTAMP datetime null

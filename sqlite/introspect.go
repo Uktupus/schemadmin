@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -66,12 +67,19 @@ type foreignKeyInfo struct {
 }
 
 // Introspect reads the ordinary tables of the main database. Views, virtual
-// tables, their shadow tables and SQLite's internal tables are skipped.
+// tables, their shadow tables and SQLite's internal tables are not tables
+// in this sense and are skipped. A foreign key that SQLite accepted but can
+// never enforce is left out and logged at warn level.
 func (Dialect) Introspect(ctx context.Context, db *sql.DB, opts schemadmin.IntrospectOptions) (*schemadmin.Schema, error) {
 	for _, s := range opts.Schemas {
 		if s != "main" {
 			return nil, fmt.Errorf(`sqlite: schema %q is not supported; only "main" is introspected`, s)
 		}
+	}
+
+	logger := opts.Logger
+	if logger == nil {
+		logger = slog.Default()
 	}
 
 	// One transaction gives every query the same snapshot of the schema.
@@ -110,9 +118,18 @@ func (Dialect) Introspect(ctx context.Context, db *sql.DB, opts schemadmin.Intro
 	// parent's primary key.
 	for _, info := range tables {
 		for _, raw := range foreignKeys[info.table.Name] {
-			if fk := resolveForeignKey(schema, info.table, raw); fk != nil {
-				info.table.ForeignKeys = append(info.table.ForeignKeys, fk)
+			fk, reason := resolveForeignKey(schema, info.table, raw)
+			if fk == nil {
+				logger.WarnContext(ctx, "schemadmin: foreign key ignored",
+					slog.String("dialect", "sqlite"),
+					slog.String("table", info.table.Name),
+					slog.Any("columns", raw.from),
+					slog.String("references", raw.refTable),
+					slog.String("reason", reason),
+				)
+				continue
 			}
+			info.table.ForeignKeys = append(info.table.ForeignKeys, fk)
 		}
 	}
 
@@ -355,19 +372,22 @@ func applyEnums(info *tableInfo) {
 //
 // SQLite accepts foreign keys it can never enforce: ones that name a missing
 // parent column, or that imply the primary key of a parent that is missing
-// or has a key of a different width. Those cannot be represented, so
-// resolveForeignKey returns nil for them.
-func resolveForeignKey(schema *schemadmin.Schema, child *schemadmin.Table, raw *foreignKeyInfo) *schemadmin.ForeignKey {
+// or has a key of a different width. Those cannot be represented, so for
+// them resolveForeignKey returns nil and the reason.
+func resolveForeignKey(schema *schemadmin.Schema, child *schemadmin.Table, raw *foreignKeyInfo) (*schemadmin.ForeignKey, string) {
 	fk := &schemadmin.ForeignKey{
 		RefTable: raw.refTable,
 		OnDelete: parseAction(raw.onDelete),
 		OnUpdate: parseAction(raw.onUpdate),
 	}
+	if raw.refTable == "" {
+		return nil, "the referenced table name is empty"
+	}
 
 	for _, name := range raw.from {
 		c := findColumn(child, name)
 		if c == nil {
-			return nil
+			return nil, fmt.Sprintf("column %q does not exist in the table", name)
 		}
 		fk.Columns = append(fk.Columns, c.Name)
 	}
@@ -382,16 +402,23 @@ func resolveForeignKey(schema *schemadmin.Schema, child *schemadmin.Table, raw *
 	parent := findTable(schema, raw.refTable)
 	switch {
 	case parent == nil && implied:
-		return nil
+		return nil, fmt.Sprintf("referenced table %q does not exist and the constraint names no columns of it", raw.refTable)
 	case parent == nil:
 		// The parent is not an introspected table. Keep the reference
 		// as written.
 		for _, to := range raw.to {
+			if to.String == "" {
+				return nil, "a referenced column name is empty"
+			}
 			fk.RefColumns = append(fk.RefColumns, to.String)
 		}
 	case implied:
+		if len(parent.PrimaryKey) == 0 {
+			return nil, fmt.Sprintf("the constraint implies the primary key of %q, which has none", parent.Name)
+		}
 		if len(parent.PrimaryKey) != len(fk.Columns) {
-			return nil
+			return nil, fmt.Sprintf("the constraint implies the primary key of %q, which has %d columns where the constraint has %d",
+				parent.Name, len(parent.PrimaryKey), len(fk.Columns))
 		}
 		fk.RefTable = parent.Name
 		fk.RefColumns = append(fk.RefColumns, parent.PrimaryKey...)
@@ -400,21 +427,19 @@ func resolveForeignKey(schema *schemadmin.Schema, child *schemadmin.Table, raw *
 		for _, to := range raw.to {
 			c := findColumn(parent, to.String)
 			if c == nil {
-				return nil
+				return nil, fmt.Sprintf("referenced column %q does not exist in %q", to.String, parent.Name)
 			}
 			fk.RefColumns = append(fk.RefColumns, c.Name)
 		}
 	}
 
-	if fk.RefTable == "" || !distinct(fk.Columns) || !distinct(fk.RefColumns) {
-		return nil
+	if !distinct(fk.Columns) {
+		return nil, "the constraint lists a column twice"
 	}
-	for _, name := range fk.RefColumns {
-		if name == "" {
-			return nil
-		}
+	if !distinct(fk.RefColumns) {
+		return nil, "the constraint lists a referenced column twice"
 	}
-	return fk
+	return fk, ""
 }
 
 func parseAction(s string) schemadmin.FKAction {

@@ -14,11 +14,26 @@ jobs:
     strategy:
       matrix:
         go: ["1.26", "stable"]
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      SCHEMADMIN_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.go }}
+          cache-dependency-path: "**/go.sum"
 
       - name: Core module has no dependencies
         run: test "$(go list -m all | wc -l)" -eq 1
@@ -29,6 +44,6 @@ jobs:
       - name: Unit tests
         run: go vet ./... && go test -race ./...
 
-      - name: Integration tests (SQLite)
+      - name: Integration tests (SQLite and PostgreSQL)
         working-directory: integration
         run: go vet ./... && go test -race ./...

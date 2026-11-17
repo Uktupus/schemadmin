@@ -1,0 +1,94 @@
+table app.empty
+  pk -
+table app.event_notes
+  pk -
+  col event_id bigint int notnull
+  col happened_at timestamp with time zone datetimetz notnull
+  col note text text null
+  fk (event_id, happened_at) -> app.events(id, happened_at) delete=no action update=no action
+table app.events
+  pk id, happened_at
+  col id bigint int notnull auto
+  col happened_at timestamp with time zone datetimetz notnull
+  col kind text text notnull
+  col user_id bigint int null
+  fk (user_id) -> app.users(id) delete=set null update=no action
+table app.post_tags
+  pk tag_code, post_id
+  col post_id integer int notnull
+  col tag_code text text notnull
+  col added_at timestamp with time zone datetimetz null
+  fk (post_id) -> app.posts(id) delete=cascade update=no action
+  fk (tag_code) -> app.tags(code) delete=restrict update=cascade
+table app.posts
+  pk id
+  col id integer int notnull auto default=nextval('app.posts_id_seq'::regclass)
+  col author_id bigint int notnull
+  col reviewer_id bigint int null
+  col parent_id integer int null
+  col title text text notnull
+  col body text text null
+  col status text text notnull default='draft'::text
+  col word_count integer int null generated
+  col revision integer int notnull generated
+  fk (author_id) -> app.users(id) delete=cascade update=no action
+  fk (reviewer_id) -> app.users(id) delete=set null update=cascade
+  fk (parent_id) -> app.posts(id) delete=restrict update=no action
+table app.tag_notes
+  pk id
+  col id bigint int notnull generated
+  col post_id integer int notnull
+  col tag_code text text notnull
+  col note text text null
+  fk (post_id, tag_code) -> app.post_tags(post_id, tag_code) delete=cascade update=no action
+table app.tag_votes
+  pk -
+  col voter_id bigint int notnull
+  col tag_code text text notnull
+  col post_id integer int notnull
+  fk (voter_id) -> app.users(id) delete=no action update=no action
+  fk (tag_code, post_id) -> app.post_tags(tag_code, post_id) delete=no action update=no action
+table app.tags
+  pk code
+  col code text text notnull
+  col label text text notnull
+table app.users
+  pk id
+  col id bigint int notnull auto
+  col email app.email string notnull max=254
+  col name character varying(100) string notnull default=''::character varying max=100
+  col role app.user_role enum notnull default='member'::app.user_role enum=admin|member|guest
+  col is_active boolean bool notnull default=true
+  col password_hash text text notnull
+  col balance numeric(10,2) decimal null
+  col rating real float null
+  col score double precision float null
+  col avatar bytea bytes null
+  col settings jsonb json null
+  col legacy json json null
+  col external_id uuid uuid notnull default=gen_random_uuid()
+  col country character(2) string null max=2
+  col nickname character varying text null
+  col birthday date date null
+  col wake_time time without time zone time null
+  col created_at timestamp with time zone datetimetz notnull default=now()
+  col updated_at timestamp without time zone datetime null
+  col tags text[] other null
+  col last_ip inet other null
+  col session_ttl interval other null
+  col referral app.code text null default='none'::text
+table billing.invoices
+  pk id
+  col id bigint int notnull auto default=nextval('billing.invoices_id_seq'::regclass)
+  col user_id bigint int notnull
+  col archived_as bigint int null
+  col total numeric decimal notnull
+  col issued_on date date notnull default=CURRENT_DATE
+  fk (user_id) -> billing.users(user_id) delete=no action update=no action
+  fk (archived_as) -> archive.invoices(id) delete=set default update=no action
+table billing.users
+  pk user_id
+  col user_id bigint int notnull
+  col currency billing.currency enum notnull default='EUR'::billing.currency enum=EUR|USD
+  col vat_number text text null
+  fk (user_id) -> app.users(id) delete=cascade update=no action

@@ -3,6 +3,7 @@ package sqlite
 import (
 	"database/sql"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/Uktupus/schemadmin"
@@ -87,6 +88,8 @@ func TestResolveForeignKey(t *testing.T) {
 		name string
 		raw  foreignKeyInfo
 		want *schemadmin.ForeignKey // nil means the key is dropped
+		// wantReason is a substring of the reason given for dropping it.
+		wantReason string
 	}{
 		{
 			name: "explicit column",
@@ -120,47 +123,62 @@ func TestResolveForeignKey(t *testing.T) {
 		},
 
 		{
-			name: "implied key of a missing parent",
-			raw:  foreignKeyInfo{refTable: "elsewhere", from: []string{"parent_id"}, to: implied(1)},
+			name:       "implied key of a missing parent",
+			raw:        foreignKeyInfo{refTable: "elsewhere", from: []string{"parent_id"}, to: implied(1)},
+			wantReason: `referenced table "elsewhere" does not exist`,
 		},
 		{
-			name: "implied key of a parent without a primary key",
-			raw:  foreignKeyInfo{refTable: "keyless", from: []string{"parent_id"}, to: implied(1)},
+			name:       "implied key of a parent without a primary key",
+			raw:        foreignKeyInfo{refTable: "keyless", from: []string{"parent_id"}, to: implied(1)},
+			wantReason: `primary key of "keyless", which has none`,
 		},
 		{
-			name: "implied key of a different width",
-			raw:  foreignKeyInfo{refTable: "pairs", from: []string{"parent_id"}, to: implied(1)},
+			name:       "implied key of a different width",
+			raw:        foreignKeyInfo{refTable: "pairs", from: []string{"parent_id"}, to: implied(1)},
+			wantReason: `primary key of "pairs", which has 2 columns where the constraint has 1`,
 		},
 		{
-			name: "missing parent column",
-			raw:  foreignKeyInfo{refTable: "parents", from: []string{"parent_id"}, to: named("nope")},
+			name:       "missing parent column",
+			raw:        foreignKeyInfo{refTable: "parents", from: []string{"parent_id"}, to: named("nope")},
+			wantReason: `referenced column "nope" does not exist in "Parents"`,
 		},
 		{
-			name: "missing child column",
-			raw:  foreignKeyInfo{refTable: "parents", from: []string{"nope"}, to: named("ID")},
+			name:       "missing child column",
+			raw:        foreignKeyInfo{refTable: "parents", from: []string{"nope"}, to: named("ID")},
+			wantReason: `column "nope" does not exist in the table`,
 		},
 		{
-			name: "repeated child column",
-			raw:  foreignKeyInfo{refTable: "pairs", from: []string{"A", "a"}, to: named("a", "b")},
+			name:       "repeated child column",
+			raw:        foreignKeyInfo{refTable: "pairs", from: []string{"A", "a"}, to: named("a", "b")},
+			wantReason: `lists a column twice`,
 		},
 		{
-			name: "repeated parent column",
-			raw:  foreignKeyInfo{refTable: "pairs", from: []string{"A", "B"}, to: named("a", "A")},
+			name:       "repeated parent column",
+			raw:        foreignKeyInfo{refTable: "pairs", from: []string{"A", "B"}, to: named("a", "A")},
+			wantReason: `lists a referenced column twice`,
 		},
 		{
-			name: "empty parent name",
-			raw:  foreignKeyInfo{refTable: "", from: []string{"parent_id"}, to: named("id")},
+			name:       "empty parent name",
+			raw:        foreignKeyInfo{refTable: "", from: []string{"parent_id"}, to: named("id")},
+			wantReason: `referenced table name is empty`,
 		},
 		{
-			name: "empty parent column outside the schema",
-			raw:  foreignKeyInfo{refTable: "elsewhere", from: []string{"parent_id"}, to: named("")},
+			name:       "empty parent column outside the schema",
+			raw:        foreignKeyInfo{refTable: "elsewhere", from: []string{"parent_id"}, to: named("")},
+			wantReason: `referenced column name is empty`,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := resolveForeignKey(schema, child, &tt.raw)
+			got, reason := resolveForeignKey(schema, child, &tt.raw)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("resolveForeignKey() = %+v, want %+v", got, tt.want)
+			}
+			switch {
+			case tt.want != nil && reason != "":
+				t.Errorf("a resolved key came with the reason %q", reason)
+			case tt.want == nil && (reason == "" || !strings.Contains(reason, tt.wantReason)):
+				t.Errorf("reason = %q, want it to contain %q", reason, tt.wantReason)
 			}
 		})
 	}

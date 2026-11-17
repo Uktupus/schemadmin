@@ -3,6 +3,7 @@ package schemadmin
 import (
 	"context"
 	"database/sql"
+	"log/slog"
 )
 
 // Dialect isolates everything that differs between databases: how the schema
@@ -14,7 +15,9 @@ type Dialect interface {
 	Name() string
 
 	// Introspect reads the tables visible through db. The returned Schema
-	// must satisfy Schema.Validate.
+	// must satisfy Schema.Validate. Anything the dialect finds but cannot
+	// represent is left out and reported through opts.Logger at warn level,
+	// never dropped silently.
 	Introspect(ctx context.Context, db *sql.DB, opts IntrospectOptions) (*Schema, error)
 
 	// QuoteIdent quotes name for use as an identifier. It is only ever
@@ -26,8 +29,12 @@ type Dialect interface {
 	Placeholder(n int) string
 
 	// SelectExpr returns the expression that reads column c, given its
-	// quoted name. Dialects use it to make the Go type a value scans into
-	// independent of the driver in use.
+	// quoted name. Dialects use it to make the value a column scans into
+	// independent of the driver and of session settings.
+	//
+	// The result belongs in the select list only. Filters, ordering and
+	// join conditions must name the column itself: wrapping it there would
+	// stop the database from using its indexes.
 	SelectExpr(quoted string, c *Column) string
 
 	// ContainsExpr returns a boolean expression that is true when the
@@ -46,6 +53,9 @@ type IntrospectOptions struct {
 	// Schemas lists the namespaces to read. Empty means the dialect's
 	// default.
 	Schemas []string
+	// Logger receives a warning for everything the dialect has to leave
+	// out of the Schema. Nil means slog.Default().
+	Logger *slog.Logger
 }
 
 // ConstraintKind is the category of an integrity-constraint violation.

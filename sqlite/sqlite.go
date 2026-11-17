@@ -33,6 +33,10 @@ func (Dialect) Placeholder(int) string { return "?" }
 // see no declared type and cannot reinterpret the value: what comes back is
 // exactly what is stored (integer, real, text or blob), whichever driver is
 // in use.
+//
+// The plus also hides the column from the query planner, which is why the
+// expression must stay in the select list: in a WHERE, ORDER BY or join
+// condition it would keep SQLite from using an index on the column.
 func (Dialect) SelectExpr(quoted string, _ *schemadmin.Column) string {
 	return "+" + quoted
 }

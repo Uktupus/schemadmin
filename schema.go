@@ -123,7 +123,8 @@ type Table struct {
 	// PrimaryKey lists the key columns in key order. It is empty when the
 	// table has no primary key.
 	PrimaryKey []string
-	// ForeignKeys are the constraints declared on this table.
+	// ForeignKeys are the constraints declared on this table, in the order
+	// they were declared.
 	ForeignKeys []*ForeignKey
 }
 
@@ -148,8 +149,9 @@ type Column struct {
 	// database supply a value: an explicit DEFAULT, or AutoIncrement.
 	HasDefault bool
 	// Default is the default expression as the database reports it, for
-	// display only. It is "" when there is none or when the value is
-	// assigned by AutoIncrement.
+	// display only. It is "" when there is no expression, which includes
+	// keys the database assigns without one (identity columns, the SQLite
+	// rowid).
 	Default string
 	// AutoIncrement reports that the database assigns a key when the column
 	// is omitted (serial, identity by default, SQLite rowid alias). Such a

@@ -75,6 +75,7 @@ type navItem struct {
 	Label   string
 	URL     string
 	Current bool
+	View    bool // use the view icon instead of the table icon
 }
 
 // nav lists the tables this request may view.
@@ -85,7 +86,10 @@ func (a *Admin) nav(rq *request, current *tableMeta) []navItem {
 	var items []navItem
 	for _, tm := range tables {
 		if rq.can(ActionView, tm) {
-			items = append(items, navItem{Label: tm.label, URL: a.listURL(tm), Current: tm == current})
+			items = append(items, navItem{
+				Label: tm.label, URL: a.listURL(tm),
+				Current: tm == current, View: tm.t.View,
+			})
 		}
 	}
 	return items

@@ -144,6 +144,26 @@
 
   // --- Sidebar ------------------------------------------------------------
 
+  var shell = document.querySelector("[data-shell]");
+  var sideToggle = document.querySelector("[data-side-toggle]");
+  var SIDE_KEY = "schemadmin.side";
+  function setSide(collapsed) {
+    if (!shell || !sideToggle) return;
+    shell.classList.toggle("side-collapsed", collapsed);
+    sideToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    sideToggle.title = collapsed ? "Expand sidebar" : "Collapse sidebar";
+    sideToggle.setAttribute("aria-label", sideToggle.title);
+    try { localStorage.setItem(SIDE_KEY, collapsed ? "1" : "0"); } catch (e) {}
+  }
+  if (shell && sideToggle) {
+    var saved = false;
+    try { saved = localStorage.getItem(SIDE_KEY) === "1"; } catch (e) {}
+    setSide(saved);
+    sideToggle.addEventListener("click", function () {
+      setSide(!shell.classList.contains("side-collapsed"));
+    });
+  }
+
   var navFilter = document.querySelector("[data-nav-filter]");
   if (navFilter) {
     navFilter.addEventListener("input", function () {

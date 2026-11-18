@@ -9,12 +9,14 @@ module uses only the standard library. Postgres and SQLite first, behind a
 
 1. Schema model, `Dialect`, SQLite introspection. Done.
 2. Postgres introspection, tested through pgx and lib/pq. Done.
-3. Query builder and value codec.
-4. Handler core: `New`, config, authorizer, CSRF, headers, errors, index.
-5. List view: search, filters, sorting, pagination.
-6. Forms: create and edit, validation, foreign-key selects.
-7. Delete with dependent rows.
-8. Example module, README, security sweep.
+3. Query builder and value codec. Done.
+4. Handler core: `New`, config, authorizer, CSRF, headers, errors, index. Done.
+5. List view: search, filters, sorting, pagination. Done.
+6. Forms: create and edit, validation, foreign-key selects. Done.
+7. Delete with dependent rows. Done.
+8. Example module, README, security sweep. Done.
+
+Next: MySQL dialect.
 
 ## Rules the code must keep
 
@@ -66,6 +68,22 @@ Forms (milestone 6)
   default applies. Generated columns are never written.
 - Round-trip test: for every column kind, including NULL, load a row,
   submit the form unchanged, and assert the stored row is identical.
+
+List (milestone 5)
+
+- The state of a list is its URL: `q`, `sort`, `dir`, `page`, and per
+  column `eq.`, `has.`, `from.`, `to.` and `is.` (null, notnull, empty).
+  Parameters that name no column are ignored; values not valid for their
+  column are ignored and reported.
+- Filters live in a menu behind each column header, built on the Popover
+  API. The menu is a plain GET form and plain links.
+
+Pages and dialogs
+
+- Rows, the create form and the delete confirmation are ordinary pages.
+  The script opens them in a `<dialog>` over the list by fetching the same
+  URL with `X-Schemadmin-Modal: 1`, for which the server sends the page
+  without its frame. Nothing depends on the script.
 
 Addressing
 

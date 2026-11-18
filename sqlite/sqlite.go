@@ -4,6 +4,8 @@
 package sqlite
 
 import (
+	"context"
+	"database/sql"
 	"strings"
 
 	"github.com/Uktupus/schemadmin"
@@ -12,7 +14,10 @@ import (
 // Dialect is the SQLite dialect. The zero value is ready to use.
 type Dialect struct{}
 
-var _ schemadmin.Dialect = Dialect{}
+var (
+	_ schemadmin.Dialect           = Dialect{}
+	_ schemadmin.ForeignKeyChecker = Dialect{}
+)
 
 // New returns the SQLite dialect.
 func New() Dialect { return Dialect{} }
@@ -67,4 +72,16 @@ func (Dialect) ClassifyError(err error) schemadmin.ConstraintKind {
 		return schemadmin.ConstraintCheck
 	}
 	return schemadmin.ConstraintNone
+}
+
+// ForeignKeysEnforced reports whether foreign keys are enforced. In SQLite
+// that is a per-connection setting, off unless the application turns it on
+// with "PRAGMA foreign_keys = ON" (most drivers accept it in the DSN), so
+// the answer describes the pooled connection that happened to be asked.
+func (Dialect) ForeignKeysEnforced(ctx context.Context, db *sql.DB) (bool, error) {
+	var on int64
+	if err := db.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&on); err != nil {
+		return false, err
+	}
+	return on != 0, nil
 }

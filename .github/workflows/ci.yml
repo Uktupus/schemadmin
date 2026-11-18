@@ -47,3 +47,7 @@ jobs:
       - name: Integration tests (SQLite and PostgreSQL)
         working-directory: integration
         run: go vet ./... && go test -race ./...
+
+      - name: Example builds
+        working-directory: example
+        run: go vet ./... && go build ./...

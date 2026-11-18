@@ -1,0 +1,86 @@
+{{define "content"}}
+<header class="head">
+<div>
+<h1>{{.Label}}</h1>
+<p class="sub mono">{{.Name}}</p>
+</div>
+{{if .NewURL}}<a class="btn primary" href="{{.NewURL}}" data-modal><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>New row</a>{{end}}
+</header>
+{{with .Notice}}<p class="notice" role="status">{{.}}</p>{{end}}
+{{range .Warnings}}<p class="notice warn" role="status">{{.}}</p>
+{{end}}
+{{if or .Searchable .Chips}}
+<div class="toolbar">
+{{if .Searchable}}
+<form class="search" method="get" action="{{.Action}}" role="search">
+{{range .Keep}}<input type="hidden" name="{{.Name}}" value="{{.Value}}">
+{{end}}<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M10.5 10.5L14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+<input type="search" name="q" value="{{.Search}}" placeholder="Search" aria-label="Search">
+</form>
+{{end}}
+{{if .Chips}}
+<div class="chips">
+{{range .Chips}}<a class="chip" href="{{.RemoveURL}}" title="Remove this filter">{{.Label}}<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></a>
+{{end}}{{if .ClearURL}}<a class="clear" href="{{.ClearURL}}">Clear all</a>{{end}}
+</div>
+{{else if .ClearURL}}<a class="clear" href="{{.ClearURL}}">Clear search</a>
+{{end}}
+</div>
+{{end}}
+<div class="card" data-list>
+<div class="table-wrap">
+<table class="grid">
+<thead>
+<tr>
+{{range .Columns}}<th scope="col"{{if .Num}} class="num"{{end}}{{if .Sort}} aria-sort="{{.Sort}}"{{end}}>{{if .Menu}}<button type="button" class="th-btn{{if .Filtered}} on{{end}}" popovertarget="{{.Menu.ID}}"><span>{{.Label}}</span>{{if eq .Sort "ascending"}}<svg class="th-ico" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 13V3M4 7l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>{{else if eq .Sort "descending"}}<svg class="th-ico" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 3v10M4 9l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>{{end}}{{if .Filtered}}<svg class="th-ico" viewBox="0 0 16 16" width="12" height="12" aria-label="Filtered"><path d="M2.5 4h11M4.5 8h7M6.5 12h3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>{{end}}<svg class="th-caret" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>{{else}}<span class="th-plain">{{.Label}}</span>{{end}}</th>
+{{end}}</tr>
+</thead>
+<tbody>
+{{range .Rows}}<tr{{if .URL}} data-row="{{.URL}}"{{end}}>
+{{range .Cells}}<td{{if .Num}} class="num"{{end}}>{{template "cell" .}}</td>
+{{end}}</tr>
+{{else}}<tr><td class="none" colspan="{{.Span}}">No rows match.</td></tr>
+{{end}}</tbody>
+</table>
+</div>
+<footer class="pager">
+<span class="range">{{.Range}}</span>
+<span class="pager-links">
+{{if .PrevURL}}<a class="btn small" href="{{.PrevURL}}" rel="prev">Previous</a>{{else}}<span class="btn small off" aria-disabled="true">Previous</span>{{end}}
+{{if .NextURL}}<a class="btn small" href="{{.NextURL}}" rel="next">Next</a>{{else}}<span class="btn small off" aria-disabled="true">Next</span>{{end}}
+</span>
+</footer>
+</div>
+{{range .Columns}}{{with .Menu}}
+<div class="menu" id="{{.ID}}" popover>
+{{if .AscURL}}
+<a class="menu-item{{if .Asc}} current{{end}}" href="{{.AscURL}}"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 13V3M4 7l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Sort ascending</a>
+<a class="menu-item{{if .Desc}} current{{end}}" href="{{.DescURL}}"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 3v10M4 9l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Sort descending</a>
+{{end}}
+{{if or .Choices .HasForm .Links}}
+{{if .AscURL}}<hr>{{end}}
+<p class="menu-title">Filter {{.Label}}</p>
+{{range .Choices}}<a class="menu-item{{if .Current}} current{{end}}" href="{{.URL}}">{{.Label}}</a>
+{{end}}
+{{if .HasForm}}
+<form class="menu-form" method="get" action="{{.Action}}">
+{{range .Keep}}<input type="hidden" name="{{.Name}}" value="{{.Value}}">
+{{end}}
+{{if .HasName}}<label><span>Contains</span><input type="text" name="{{.HasName}}" value="{{.Has}}"></label>{{end}}
+{{if .EqName}}<label><span>Is</span><input type="text" name="{{.EqName}}" value="{{.Eq}}"></label>{{end}}
+{{if .FromName}}
+<label><span>From</span><input type="{{if .Dates}}date{{else}}text{{end}}" name="{{.FromName}}" value="{{.From}}"></label>
+<label><span>To</span><input type="{{if .Dates}}date{{else}}text{{end}}" name="{{.ToName}}" value="{{.To}}"></label>
+{{end}}
+<button class="btn primary small" type="submit">Apply</button>
+</form>
+{{end}}
+{{range .Links}}<a class="menu-item{{if .Current}} current{{end}}" href="{{.URL}}">{{.Label}}</a>
+{{end}}
+{{if .ClearURL}}<hr><a class="menu-item" href="{{.ClearURL}}">Clear filter</a>{{end}}
+{{end}}
+</div>
+{{end}}{{end}}
+{{end}}
+
+{{define "cell"}}{{if .URL}}<a href="{{.URL}}"{{if .Modal}} data-modal{{end}}{{if .State}} class="v-{{.State}}"{{end}}>{{.Text}}</a>{{else if .State}}<span class="v-{{.State}}">{{.Text}}</span>{{else}}{{.Text}}{{end}}{{if .Extra}} <span class="extra">{{.Extra}}</span>{{end}}{{end}}

@@ -1,0 +1,40 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{{.Title}} · {{.Admin}}</title>
+<link rel="stylesheet" href="{{.CSS}}">
+<script src="{{.JS}}" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="shell">
+<aside class="side">
+<a class="brand" href="{{.IndexURL}}"><span class="mark" aria-hidden="true"></span>{{.Admin}}</a>
+{{if .Nav}}
+{{if .NavFilter}}<input class="side-filter" type="search" placeholder="Filter tables" aria-label="Filter tables" data-nav-filter>{{end}}
+<nav aria-label="Tables">
+<p class="side-title">Tables</p>
+<ul>
+{{range .Nav}}<li><a href="{{.URL}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}}</a></li>
+{{end}}</ul>
+</nav>
+{{end}}
+</aside>
+<main class="main" id="main">
+{{template "content" .Body}}
+</main>
+</div>
+<dialog class="modal" id="modal" aria-label="Row">
+<div class="modal-body" data-modal-body></div>
+<button class="icon-btn modal-close" type="button" data-close aria-label="Close"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
+</dialog>
+</body>
+</html>
+{{end}}
+
+{{define "fragment"}}{{template "content" .Body}}{{end}}
+
+{{define "value"}}{{if .State}}<span class="v-{{.State}}">{{.Text}}</span>{{else}}{{.Text}}{{end}}{{end}}

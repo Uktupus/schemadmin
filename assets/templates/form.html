@@ -1,0 +1,45 @@
+{{define "content"}}
+<header class="head">
+<div>
+<p class="crumb"><a href="{{.ListURL}}">{{.TableLabel}}</a></p>
+<h1>{{.Heading}}</h1>
+</div>
+</header>
+{{with .Notice}}<p class="notice" role="status">{{.}}</p>{{end}}
+{{with .Error}}<p class="notice error" role="alert">{{.}}</p>{{end}}
+<form class="form" method="post" action="{{.Action}}" novalidate autocomplete="off">
+{{range .Fields}}
+<div class="field{{if .Error}} bad{{end}}">
+<div class="field-head">
+<label for="{{.ID}}">{{.Label}}</label>
+<span class="type">{{.Meta}}</span>
+</div>
+<div class="field-body">
+{{if eq .Control "static"}}
+<div class="static" id="{{.ID}}">{{template "value" .Static}}</div>
+{{else if eq .Control "textarea"}}
+<textarea id="{{.ID}}" name="{{.Name}}" rows="{{.Rows}}" spellcheck="false"{{if .Placeholder}} placeholder="{{.Placeholder}}"{{end}} class="{{if .Code}}code{{end}}{{if .Null}} is-null{{end}}">
+{{.Value}}</textarea>
+{{else if eq .Control "select"}}
+<select id="{{.ID}}" name="{{.Name}}"{{if .Null}} class="is-null"{{end}}>
+{{range .Options}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>
+{{end}}</select>
+{{else}}
+<input id="{{.ID}}" type="{{.Type}}" name="{{.Name}}" value="{{.Value}}"{{if .InputMode}} inputmode="{{.InputMode}}"{{end}}{{if .Placeholder}} placeholder="{{.Placeholder}}"{{end}}{{if .MaxLength}} maxlength="{{.MaxLength}}"{{end}}{{if .ListID}} list="{{.ListID}}" data-options="{{.OptionsURL}}"{{end}}{{if eq .Type "password"}} autocomplete="new-password"{{end}}{{if .Null}} class="is-null"{{end}}>
+{{if .ListID}}<datalist id="{{.ListID}}"></datalist>{{end}}
+{{end}}
+{{if .NullName}}<label class="null"><input type="checkbox" name="{{.NullName}}" value="1" data-null-for="{{.ID}}"{{if .Null}} checked{{end}}><span>NULL</span></label>{{end}}
+</div>
+{{if .OrigName}}<input type="hidden" name="{{.OrigName}}" value="{{.Orig}}">{{end}}
+{{with .Error}}<p class="field-error">{{.}}</p>{{end}}
+{{with .Help}}<p class="help">{{.}}</p>{{end}}
+{{if .RefURL}}<p class="help"><a href="{{.RefURL}}"{{if .RefRow}} data-modal{{end}}>Open the referenced row</a></p>{{end}}
+</div>
+{{end}}
+<div class="actions">
+{{if .Submit}}<button class="btn primary" type="submit">{{.Submit}}</button>{{end}}
+<a class="btn" href="{{.CancelURL}}" data-close>{{if .Submit}}Cancel{{else}}Close{{end}}</a>
+{{if .DeleteURL}}<a class="btn danger push" href="{{.DeleteURL}}" data-modal>Delete</a>{{end}}
+</div>
+</form>
+{{end}}

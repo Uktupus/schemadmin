@@ -1,0 +1,29 @@
+{{define "content"}}
+<header class="head">
+<div>
+<p class="crumb"><a href="{{.ListURL}}">{{.TableLabel}}</a></p>
+<h1>{{.Heading}}</h1>
+</div>
+</header>
+{{with .Error}}<p class="notice error" role="alert">{{.}}</p>{{end}}
+<p class="lead">This cannot be undone.</p>
+{{if .Dependents}}
+<section class="deps">
+<h2>Rows that refer to this row</h2>
+<ul>
+{{range .Dependents}}<li><strong>{{.Count}}</strong> in {{if .URL}}<a href="{{.URL}}">{{.Table}}</a>{{else}}{{.Table}}{{end}} {{.Effect}}.</li>
+{{end}}</ul>
+</section>
+{{end}}
+{{if .Blocked}}<p class="notice warn">The database will refuse this delete while those rows exist.</p>{{end}}
+{{if .Unenforced}}<p class="notice warn">Foreign keys are not enforced on this database connection.</p>{{end}}
+{{if .Hidden}}<p class="notice">Tables you cannot view also refer to this table. Rows in them may be affected or may prevent the delete.</p>{{end}}
+{{with .Unknown}}<p class="notice">{{.}}</p>{{end}}
+<dl class="summary">
+{{range .Summary}}<dt>{{.Label}}</dt><dd>{{template "value" .Value}}</dd>
+{{end}}</dl>
+<form class="actions" method="post" action="{{.Action}}">
+<button class="btn danger solid" type="submit">Delete row</button>
+<a class="btn" href="{{.CancelURL}}" data-modal>Cancel</a>
+</form>
+{{end}}

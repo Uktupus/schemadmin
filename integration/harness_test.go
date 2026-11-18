@@ -303,6 +303,8 @@ func checkHostileIdentifiers(t *testing.T, d schemadmin.Dialect, db *sql.DB, sch
 	}
 	mustExec(t, db, "CREATE TABLE "+qualify("canary")+" (id INTEGER PRIMARY KEY)")
 
+	// Use a table-level FOREIGN KEY. MySQL parses but ignores inline
+	// REFERENCES on a column definition; PostgreSQL and SQLite accept both.
 	last := len(hostileColumnNames) - 1
 	var defs []string
 	for i, name := range hostileColumnNames {
@@ -310,11 +312,12 @@ func checkHostileIdentifiers(t *testing.T, d schemadmin.Dialect, db *sql.DB, sch
 		case 0:
 			defs = append(defs, d.QuoteIdent(name)+" INTEGER PRIMARY KEY")
 		case last:
-			defs = append(defs, d.QuoteIdent(name)+" INTEGER REFERENCES "+qualify(hostileTableName)+" ("+d.QuoteIdent(hostileColumnNames[0])+")")
+			defs = append(defs, d.QuoteIdent(name)+" INTEGER")
 		default:
 			defs = append(defs, d.QuoteIdent(name)+" TEXT")
 		}
 	}
+	defs = append(defs, "FOREIGN KEY ("+d.QuoteIdent(hostileColumnNames[last])+") REFERENCES "+qualify(hostileTableName)+" ("+d.QuoteIdent(hostileColumnNames[0])+")")
 	mustExec(t, db, "CREATE TABLE "+qualify(hostileTableName)+" ("+strings.Join(defs, ", ")+")")
 
 	schema := mustIntrospect(t, d, db, opts)

@@ -1,5 +1,9 @@
 # schemadmin
 
+[![CI](https://github.com/Uktupus/schemadmin/actions/workflows/ci.yml/badge.svg)](https://github.com/Uktupus/schemadmin/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/Uktupus/schemadmin.svg)](https://pkg.go.dev/github.com/Uktupus/schemadmin)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 An admin panel for any Go application that has a `*sql.DB`.
 
 schemadmin reads the database schema at startup (tables, columns, types,
@@ -14,7 +18,22 @@ registration and no code generation: the database is the source of truth.
   page also works with JavaScript switched off.
 - Go 1.26 or later.
 
-## Usage
+## Install
+
+```sh
+go get github.com/Uktupus/schemadmin@latest
+```
+
+Import a dialect next to the core package:
+
+```go
+import (
+	"github.com/Uktupus/schemadmin"
+	"github.com/Uktupus/schemadmin/postgres" // or sqlite, mysql
+)
+```
+
+## Quick start
 
 ```go
 package main
@@ -41,7 +60,7 @@ func main() {
 
 	admin, err := schemadmin.New(context.Background(), schemadmin.Config{
 		DB:       db,
-		Dialect:  postgres.New(), // or sqlite.New()
+		Dialect:  postgres.New(), // or sqlite.New(), mysql.New()
 		BasePath: "/admin",
 		Authorizer: schemadmin.AuthorizerFunc(func(r *http.Request, action schemadmin.Action, table string) bool {
 			user := currentUser(r) // your application's session
@@ -65,7 +84,8 @@ cd example && go run .
 # open http://localhost:8080/admin/
 ```
 
-The example seeds a small shop into a temporary SQLite file.
+The example seeds a small shop into a temporary SQLite file. It authorizes
+loopback only; wire your own session check before exposing anything else.
 
 ## What you get
 
@@ -180,16 +200,16 @@ documentation of `Config`, `TableConfig` and `ColumnConfig` for the rest.
 
 ### List URLs
 
-| Parameter           | Meaning                                         |
-| ------------------- | ----------------------------------------------- |
-| `q`                 | search text                                     |
-| `sort`, `dir`       | column to order by; `dir=desc` reverses         |
-| `page`              | page number, from 1                             |
-| `eq.COLUMN`         | column equals the value                         |
-| `has.COLUMN`        | column contains the text                        |
-| `from.COLUMN`       | column is at least the value                    |
-| `to.COLUMN`         | column is at most the value                     |
-| `is.COLUMN`         | `null`, `notnull` or `empty`                    |
+| Parameter     | Meaning                                      |
+| ------------- | -------------------------------------------- |
+| `q`           | search text                                  |
+| `sort`, `dir` | column to order by; `dir=desc` reverses      |
+| `page`        | page number, from 1                          |
+| `eq.COLUMN`   | column equals the value                      |
+| `has.COLUMN`  | column contains the text                     |
+| `from.COLUMN` | column is at least the value                 |
+| `to.COLUMN`   | column is at most the value                  |
+| `is.COLUMN`   | `null`, `notnull` or `empty`                 |
 
 A parameter that names no column is ignored. A value that is not valid for
 its column is ignored and reported on the page.
@@ -205,7 +225,11 @@ its column is ignored and reported on the page.
 - Export is CSV only, capped by `Config.ExportMax`.
 - Bulk actions are delete only.
 
-## Development
+## Contributing
+
+Bug reports, dialect fixes and small, well-tested features are welcome.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, tests, project layout and
+the security rules a change must not weaken.
 
 ```sh
 go test ./...                        # unit tests: no database, no dependencies
@@ -213,10 +237,6 @@ cd integration && go test ./...      # SQLite; Postgres/MySQL when a server is c
 scripts/pg-test.sh                   # throwaway PostgreSQL server
 scripts/mysql-test.sh                # throwaway MySQL server
 ```
-
-PostgreSQL tests run under both pgx and lib/pq. Set
-`SCHEMADMIN_POSTGRES_DSN` or `SCHEMADMIN_MYSQL_DSN` to use your own server
-(a role that may create databases).
 
 ## License
 

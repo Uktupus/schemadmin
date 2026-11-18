@@ -21,7 +21,7 @@ type value struct {
 
 // scanValue converts what a driver returned for a column of the given kind.
 // Dialect.SelectExpr has already reduced the possibilities to a few Go
-// types; the remaining cases are handled for robustness.
+// types; this covers the leftovers drivers still return.
 func scanValue(kind Kind, raw any) value {
 	var s string
 	switch v := raw.(type) {

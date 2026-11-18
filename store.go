@@ -38,8 +38,8 @@ func readRows(ctx context.Context, q queryer, cols []*colMeta, query string, arg
 		vals := make([]value, len(cols))
 		for i, c := range cols {
 			kind := c.c.Kind
-			if c.masked || kind == KindBytes {
-				kind = KindInt // a marker or a length, not the content
+			if c.masked {
+				kind = KindInt // set/NULL marker, not the content
 			}
 			vals[i] = scanValue(kind, raw[i])
 		}
@@ -152,32 +152,83 @@ func (fk *fkMeta) labelColumn() *colMeta {
 	if fk.target.display != nil {
 		return fk.target.display
 	}
-	return fk.col
+	if fk.col != nil {
+		return fk.col
+	}
+	if len(fk.refCols) > 0 {
+		return fk.refCols[0]
+	}
+	return nil
+}
+
+// valueCols are the columns that identify a referenced row.
+func (fk *fkMeta) valueCols() []*colMeta {
+	if len(fk.refCols) > 0 {
+		return fk.refCols
+	}
+	if fk.col != nil {
+		return []*colMeta{fk.col}
+	}
+	return nil
 }
 
 // options reads up to limit rows of a foreign key's target.
 func (a *Admin) options(ctx context.Context, fk *fkMeta, search string, limit int) ([]option, error) {
+	valueCols := fk.valueCols()
 	labelCol := fk.labelColumn()
-	query, args := buildOptions(a.d, fk.target, fk.col, labelCol, search, limit)
+	if len(valueCols) == 0 || labelCol == nil {
+		return nil, nil
+	}
+	cols := append([]*colMeta{}, valueCols...)
+	if labelCol != valueCols[0] {
+		cols = append(cols, labelCol)
+	}
+	query, args := buildOptions(a.d, fk.target, valueCols, labelCol, search, limit)
 	ctx, cancel := context.WithTimeout(ctx, a.queryTimeout)
 	defer cancel()
-	rows, err := readRows(ctx, a.db, []*colMeta{fk.col, labelCol}, query, args)
+	rows, err := readRows(ctx, a.db, cols, query, args)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]option, 0, len(rows))
 	for _, row := range rows {
-		if row[0].Null || !representable(row[0].S) {
+		parts := make([]string, len(valueCols))
+		ok := true
+		for i := range valueCols {
+			if row[i].Null || !representable(row[i].S) {
+				ok = false
+				break
+			}
+			parts[i] = row[i].S
+		}
+		if !ok {
 			continue
 		}
-		out = append(out, option{Value: row[0].S, Label: optionLabel(row[0], row[1])})
+		val := parts[0]
+		if len(parts) > 1 {
+			val = encodeKey(parts)
+		}
+		label := row[0]
+		if len(row) > len(valueCols) {
+			label = row[len(valueCols)]
+		} else if labelCol != nil && labelCol != valueCols[0] {
+			// label was one of the value columns other than the first
+			for i, c := range valueCols {
+				if c == labelCol {
+					label = row[i]
+					break
+				}
+			}
+		}
+		out = append(out, option{Value: val, Label: optionLabel(value{S: parts[0]}, label)})
 	}
 	return out, nil
 }
 
 // labels reads the display value of the target rows that vals refer to.
+// vals are single-column foreign-key values.
 func (a *Admin) labels(ctx context.Context, fk *fkMeta, vals []string) (map[string]string, error) {
-	if fk.target.display == nil || len(vals) == 0 {
+	if fk.target.display == nil || fk.col == nil || len(vals) == 0 {
 		return nil, nil
 	}
 	var args []any

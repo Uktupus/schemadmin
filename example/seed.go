@@ -78,6 +78,11 @@ CREATE TABLE audit_log (
 	action  TEXT NOT NULL,
 	details JSON
 );
+
+CREATE VIEW active_customers AS
+SELECT id, name, email, tier, created_at
+FROM customers
+WHERE is_active = 1;
 `
 
 var (

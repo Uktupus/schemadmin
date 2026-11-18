@@ -138,6 +138,48 @@ func formFingerprint(c *colMeta, v value) string {
 	return fingerprint(v)
 }
 
+// expandCompositeFKs copies a composite foreign-key selection from the
+// lead column onto every column of the key, so the form needs only one
+// control for the whole constraint. An unchanged selection leaves the
+// whole group unsent so the update loop does not touch it.
+func expandCompositeFKs(tm *tableMeta, sub *submission) {
+	for _, c := range tm.cols {
+		if c.fk == nil || len(c.fk.cols) < 2 || !sub.sent[c.idx] {
+			continue
+		}
+		raw := value{Null: sub.null[c.idx], S: sub.text[c.idx]}
+		if raw.Null {
+			raw.S = ""
+		}
+		if sub.orig[c.idx] != "" && fingerprint(raw) == sub.orig[c.idx] {
+			for _, sib := range c.fk.cols {
+				sub.sent[sib.idx] = false
+			}
+			continue
+		}
+		if sub.null[c.idx] {
+			for _, sib := range c.fk.cols {
+				sub.null[sib.idx] = true
+				sub.text[sib.idx] = ""
+				sub.sent[sib.idx] = true
+				sub.orig[sib.idx] = "" // force a write of NULL
+			}
+			continue
+		}
+		parts, ok := decodeKey(sub.text[c.idx], len(c.fk.cols))
+		if !ok {
+			sub.errs[c.idx] = "Choose one of the listed values."
+			continue
+		}
+		for i, sib := range c.fk.cols {
+			sub.text[sib.idx] = parts[i]
+			sub.null[sib.idx] = false
+			sub.sent[sib.idx] = true
+			sub.orig[sib.idx] = "" // force a write of the new part
+		}
+	}
+}
+
 // argument validates v for column c and returns what to bind. Line breaks
 // arrive from browsers as CRLF; they are stored as LF unless the value
 // being replaced used CRLF itself.
@@ -176,6 +218,7 @@ func (a *Admin) handleCreate(w http.ResponseWriter, r *http.Request) {
 	if sub == nil {
 		return
 	}
+	expandCompositeFKs(tm, sub)
 
 	var cols []*Column
 	var vals []any
@@ -204,10 +247,19 @@ func (a *Admin) handleCreate(w http.ResponseWriter, r *http.Request) {
 	query, args := buildInsert(a.d, tm, cols, vals, tm.pk)
 	var created [][]value
 	var err error
-	if len(tm.pk) > 0 {
-		created, err = readRows(ctx, a.db, tm.pk, query, args)
-	} else {
+	switch {
+	case len(tm.pk) == 0:
 		_, err = a.db.ExecContext(ctx, query, args...)
+	case supportsReturning(a.d):
+		created, err = readRows(ctx, a.db, tm.pk, query, args)
+	default:
+		res, execErr := a.db.ExecContext(ctx, query, args...)
+		err = execErr
+		if err == nil && len(tm.pk) == 1 && tm.pk[0].c.AutoIncrement {
+			if id, idErr := res.LastInsertId(); idErr == nil {
+				created = [][]value{{{S: strconv.FormatInt(id, 10)}}}
+			}
+		}
 	}
 	if err != nil {
 		a.renderForm(w, rq, http.StatusUnprocessableEntity, tm, "", nil, sub, a.writeError(rq, err, false))
@@ -287,6 +339,25 @@ func (a *Admin) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Composite foreign keys are submitted as one encoded value on the
+	// lead column. Detect conflicts against that encoding, then unpack.
+	for _, c := range tm.cols {
+		if c.fk == nil || len(c.fk.cols) < 2 || !sub.sent[c.idx] || sub.orig[c.idx] == "" {
+			continue
+		}
+		raw := value{Null: sub.null[c.idx], S: sub.text[c.idx]}
+		if raw.Null {
+			raw.S = ""
+		}
+		if fingerprint(raw) == sub.orig[c.idx] {
+			continue
+		}
+		if fingerprint(compositeFKValue(c.fk, row)) != sub.orig[c.idx] {
+			sub.errs[c.idx] = "This value was changed by someone else after you opened the form. Reload the page to see it."
+		}
+	}
+	expandCompositeFKs(tm, sub)
+
 	var cols []*Column
 	var vals []any
 	var names []string
@@ -294,8 +365,18 @@ func (a *Admin) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	for _, c := range tm.cols {
 		cur := row[c.idx]
 		orig := sub.orig[c.idx]
-		if !c.writable() || !sub.sent[c.idx] || orig == "" || (!c.masked && !representable(cur.S)) {
+		if !c.writable() || !sub.sent[c.idx] {
 			continue
+		}
+		forced := orig == "" && (c.fkFollow || (c.fk != nil && len(c.fk.cols) > 1))
+		if orig == "" && !forced {
+			continue
+		}
+		if !forced && !c.masked && c.c.Kind != KindBytes && !cur.Null && !representable(cur.S) {
+			continue
+		}
+		if forced {
+			orig = formFingerprint(c, cur)
 		}
 		text, null := sub.text[c.idx], sub.null[c.idx] && c.c.Nullable
 
@@ -437,6 +518,12 @@ func (a *Admin) renderForm(w http.ResponseWriter, rq *request, status int, tm *t
 		var cur value
 		if !creating {
 			cur = row[c.idx]
+			if c.fk != nil && len(c.fk.cols) > 1 {
+				cur = compositeFKValue(c.fk, row)
+			}
+		}
+		if sub != nil && sub.sent[c.idx] && c.fk != nil && len(c.fk.cols) > 1 {
+			cur = value{Null: sub.null[c.idx], S: sub.text[c.idx]}
 		}
 		body.Fields = append(body.Fields, a.field(rq, c, creating, canWrite, cur, sub))
 	}
@@ -455,19 +542,46 @@ func fieldMeta(c *colMeta) string {
 	return meta
 }
 
+func joinHelp(base, extra string) string {
+	switch {
+	case base == "":
+		return extra
+	case extra == "":
+		return base
+	}
+	return base + " " + extra
+}
+
+// compositeFKValue is the form value of a composite foreign key: the
+// encoded key of the referenced row, or NULL when any part is NULL.
+func compositeFKValue(fk *fkMeta, row []value) value {
+	parts := make([]string, len(fk.cols))
+	for i, sib := range fk.cols {
+		if row[sib.idx].Null {
+			return value{Null: true}
+		}
+		parts[i] = row[sib.idx].S
+	}
+	return value{S: encodeKey(parts)}
+}
+
 // field builds one form field.
 func (a *Admin) field(rq *request, c *colMeta, creating, canWrite bool, cur value, sub *submission) fieldView {
 	n := strconv.Itoa(c.idx)
 	f := fieldView{ID: "f" + n, Label: c.label, Meta: fieldMeta(c), Help: c.help}
 
 	viewTarget := c.fk != nil && rq.can(ActionView, c.fk.target)
-	if viewTarget && !creating && !cur.Null {
+	if viewTarget && !creating && !cur.Null && c.fk.col != nil {
 		f.RefURL, f.RefRow = a.refURL(c.fk, cur.S)
 	}
 
-	if !canWrite || !c.writable() || (!creating && !c.masked && !cur.Null && !representable(cur.S)) {
+	if !canWrite || !c.writable() || c.fkFollow || (!creating && !c.masked && c.c.Kind != KindBytes && !cur.Null && !representable(cur.S)) {
 		f.Control = "static"
 		f.Static = showValue(c, cur, 2000)
+		if c.c.Kind == KindBytes && !cur.Null {
+			f.Static = cell{Text: cur.S, State: "muted"}
+			f.Help = joinHelp(c.help, groupDigits(int64(len(cur.S)/2))+" bytes as hexadecimal")
+		}
 		return f
 	}
 
@@ -534,6 +648,11 @@ func (a *Admin) field(rq *request, c *colMeta, creating, canWrite bool, cur valu
 		if !creating && !cur.Null {
 			f.Placeholder = "Leave empty to keep the current value"
 		}
+	case c.c.Kind == KindBytes:
+		f.Control = "textarea"
+		f.Code = true
+		f.Rows = min(max(1+len(text)/48, 2), 12)
+		f.Help = joinHelp(f.Help, "Hexadecimal bytes, e.g. 00ff10.")
 	case viewTarget && !multiline:
 		opts, err := a.options(rq.r.Context(), c.fk, "", fkSelectLimit+1)
 		switch {
@@ -542,12 +661,15 @@ func (a *Admin) field(rq *request, c *colMeta, creating, canWrite bool, cur valu
 			f.Control, f.Type = "input", "text"
 		case len(opts) <= fkSelectLimit:
 			choose(opts)
-		default:
+		case c.fk.col != nil:
 			f.Control, f.Type = "input", "text"
 			f.ListID, f.OptionsURL = "l"+n, a.optionsURL(c.fk.target, c.fk.col)
 			if f.Placeholder == "" {
 				f.Placeholder = "Type to search " + c.fk.target.label
 			}
+		default:
+			f.Control, f.Type = "input", "text"
+			f.Placeholder = "Key of the referenced row"
 		}
 	case len(c.choices) > 0 && !multiline:
 		choose(plain(c.choices))

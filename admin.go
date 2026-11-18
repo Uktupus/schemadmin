@@ -29,22 +29,28 @@ const (
 )
 
 // Admin is the admin panel. It is an http.Handler and is safe for
-// concurrent use. The schema is read once, in New; restart the process to
-// pick up schema changes.
+// concurrent use. The schema is read in New and may be refreshed with
+// Reload when Config.AllowReload is set.
 type Admin struct {
-	db     *sql.DB
-	d      Dialect
-	auth   Authorizer
-	base   string
-	title  string
-	log    *slog.Logger
-	schema *Schema
+	db      *sql.DB
+	d       Dialect
+	auth    Authorizer
+	base    string
+	title   string
+	log     *slog.Logger
+	cfg     *Config
+	schemas []string
 
+	mu     sync.RWMutex
+	schema *Schema
 	tables []*tableMeta
 	bySeg  map[string]*tableMeta
 
 	queryTimeout time.Duration
 	countTimeout time.Duration
+	bulkLimit    int
+	exportMax    int
+	allowReload  bool
 
 	csrf  *http.CrossOriginProtection
 	mux   *http.ServeMux
@@ -84,6 +90,18 @@ func New(ctx context.Context, cfg Config) (*Admin, error) {
 	if cfg.CountTimeout <= 0 {
 		cfg.CountTimeout = defaultCountTimeout
 	}
+	if cfg.BulkLimit <= 0 {
+		cfg.BulkLimit = defaultBulkLimit
+	}
+	if cfg.BulkLimit > maxBulkLimit {
+		cfg.BulkLimit = maxBulkLimit
+	}
+	if cfg.ExportMax <= 0 {
+		cfg.ExportMax = defaultExportMax
+	}
+	if cfg.ExportMax > maxExportMax {
+		cfg.ExportMax = maxExportMax
+	}
 
 	ictx, cancel := context.WithTimeout(ctx, cfg.QueryTimeout)
 	defer cancel()
@@ -110,6 +128,7 @@ func New(ctx context.Context, cfg Config) (*Admin, error) {
 		return nil, err
 	}
 
+	cfgCopy := cfg
 	a := &Admin{
 		db:           cfg.DB,
 		d:            cfg.Dialect,
@@ -117,11 +136,16 @@ func New(ctx context.Context, cfg Config) (*Admin, error) {
 		base:         base,
 		title:        cfg.Title,
 		log:          cfg.Logger,
+		cfg:          &cfgCopy,
+		schemas:      append([]string(nil), cfg.Schemas...),
 		schema:       schema,
 		tables:       tables,
 		bySeg:        map[string]*tableMeta{},
 		queryTimeout: cfg.QueryTimeout,
 		countTimeout: cfg.CountTimeout,
+		bulkLimit:    cfg.BulkLimit,
+		exportMax:    cfg.ExportMax,
+		allowReload:  cfg.AllowReload,
 		csrf:         csrf,
 		pages:        pages,
 	}
@@ -133,13 +157,18 @@ func New(ctx context.Context, cfg Config) (*Admin, error) {
 	mux.HandleFunc("GET /{$}", a.handleIndex)
 	mux.HandleFunc("GET /static/{file}", a.handleStatic)
 	mux.HandleFunc("GET /t/{table}", a.handleList)
+	mux.HandleFunc("GET /t/{table}/export", a.handleExport)
 	mux.HandleFunc("GET /t/{table}/options", a.handleOptions)
 	mux.HandleFunc("GET /t/{table}/new", a.handleNew)
 	mux.HandleFunc("POST /t/{table}/new", a.handleCreate)
+	mux.HandleFunc("POST /t/{table}/bulk-delete", a.handleBulkDelete)
 	mux.HandleFunc("GET /t/{table}/r/{key}", a.handleEdit)
 	mux.HandleFunc("POST /t/{table}/r/{key}", a.handleUpdate)
 	mux.HandleFunc("GET /t/{table}/r/{key}/delete", a.handleConfirmDelete)
 	mux.HandleFunc("POST /t/{table}/r/{key}/delete", a.handleDelete)
+	if cfg.AllowReload {
+		mux.HandleFunc("POST /reload", a.handleReload)
+	}
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		a.notFound(w, a.request(r))
 	})
@@ -147,9 +176,13 @@ func New(ctx context.Context, cfg Config) (*Admin, error) {
 	return a, nil
 }
 
-// Schema returns the schema the admin read at startup. It must not be
+// Schema returns the schema the admin last introspected. It must not be
 // modified.
-func (a *Admin) Schema() *Schema { return a.schema }
+func (a *Admin) Schema() *Schema {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.schema
+}
 
 // ServeHTTP serves the admin. Every request is checked in this order: it
 // must be same-origin if it can change anything, and the Authorizer must
@@ -250,7 +283,9 @@ func (rq *request) query() (context.Context, context.CancelFunc) {
 // does not exist, may not be seen, or may not be acted on. A table the
 // user may not view looks exactly like one that does not exist.
 func (a *Admin) table(w http.ResponseWriter, rq *request, action Action) *tableMeta {
+	a.mu.RLock()
 	tm := a.bySeg[rq.r.PathValue("table")]
+	a.mu.RUnlock()
 	if tm == nil || !rq.can(ActionView, tm) {
 		a.notFound(w, rq)
 		return nil
@@ -287,6 +322,10 @@ func (a *Admin) deleteURL(tm *tableMeta, key string) string {
 func (a *Admin) optionsURL(tm *tableMeta, col *colMeta) string {
 	return a.listURL(tm) + "/options?col=" + url.QueryEscape(col.c.Name)
 }
+
+func (a *Admin) exportURL(tm *tableMeta) string { return a.listURL(tm) + "/export" }
+
+func (a *Admin) bulkDeleteURL(tm *tableMeta) string { return a.listURL(tm) + "/bulk-delete" }
 
 // Errors.
 

@@ -44,14 +44,12 @@ func (s *stmt) table(t *Table) string {
 func (s *stmt) col(c *Column) string { return s.d.QuoteIdent(c.Name) }
 
 // readExpr is the select-list expression for a column. A masked column is
-// read only as "is it set"; a binary column only as its length.
+// read only as "is it set". Binary columns are read as hex text through
+// SelectExpr so forms can round-trip them.
 func (s *stmt) readExpr(c *colMeta) string {
 	q := s.col(c.c)
-	switch {
-	case c.masked:
+	if c.masked {
 		return "CASE WHEN " + q + " IS NULL THEN NULL ELSE 1 END"
-	case c.c.Kind == KindBytes:
-		return "length(" + q + ")"
 	}
 	return s.d.SelectExpr(q, c.c)
 }
@@ -198,27 +196,30 @@ func buildGet(d Dialect, tm *tableMeta, key []any) (string, []any) {
 // reads those columns of the new row back.
 func buildInsert(d Dialect, tm *tableMeta, cols []*Column, vals []any, returning []*colMeta) (string, []any) {
 	s := newStmt(d)
-	s.write("INSERT INTO ", s.table(tm.t))
 	if len(cols) == 0 {
-		s.write(" DEFAULT VALUES")
-	} else {
-		s.write(" (")
-		for i, c := range cols {
-			if i > 0 {
-				s.write(", ")
-			}
-			s.write(s.col(c))
+		s.write(emptyInsertSQL(d, s.table(tm.t)))
+		if len(returning) > 0 && supportsReturning(d) {
+			s.write(" RETURNING ")
+			s.selectList(returning)
 		}
-		s.write(") VALUES (")
-		for i := range cols {
-			if i > 0 {
-				s.write(", ")
-			}
-			s.write(s.bind(vals[i]))
-		}
-		s.write(")")
+		return s.sql.String(), s.args
 	}
-	if len(returning) > 0 {
+	s.write("INSERT INTO ", s.table(tm.t), " (")
+	for i, c := range cols {
+		if i > 0 {
+			s.write(", ")
+		}
+		s.write(s.col(c))
+	}
+	s.write(") VALUES (")
+	for i := range cols {
+		if i > 0 {
+			s.write(", ")
+		}
+		s.write(s.bind(vals[i]))
+	}
+	s.write(")")
+	if len(returning) > 0 && supportsReturning(d) {
 		s.write(" RETURNING ")
 		s.selectList(returning)
 	}
@@ -243,6 +244,35 @@ func buildDelete(d Dialect, tm *tableMeta, key []any) (string, []any) {
 	s := newStmt(d)
 	s.write("DELETE FROM ", s.table(tm.t), " WHERE ")
 	s.keyCondition(columnsOf(tm.pk), key)
+	return s.sql.String(), s.args
+}
+
+// buildDeleteKeys deletes every row whose primary key is one of keys.
+// Each key must have the same length as the table's primary key.
+func buildDeleteKeys(d Dialect, tm *tableMeta, keys [][]any) (string, []any) {
+	s := newStmt(d)
+	s.write("DELETE FROM ", s.table(tm.t), " WHERE ")
+	pk := columnsOf(tm.pk)
+	switch len(pk) {
+	case 1:
+		s.write(s.col(pk[0]), " IN (")
+		for i, key := range keys {
+			if i > 0 {
+				s.write(", ")
+			}
+			s.write(s.bind(key[0]))
+		}
+		s.write(")")
+	default:
+		for i, key := range keys {
+			if i > 0 {
+				s.write(" OR ")
+			}
+			s.write("(")
+			s.keyCondition(pk, key)
+			s.write(")")
+		}
+	}
 	return s.sql.String(), s.args
 }
 
@@ -271,26 +301,57 @@ func buildLabels(d Dialect, tm *tableMeta, valueCol, labelCol *colMeta, vals []a
 	return s.sql.String(), s.args
 }
 
-// buildOptions reads up to limit (value, label) pairs for a foreign-key
-// control, optionally narrowed to those containing search.
-func buildOptions(d Dialect, tm *tableMeta, valueCol, labelCol *colMeta, search string, limit int) (string, []any) {
+// buildOptions reads up to limit rows for a foreign-key control: the value
+// columns followed by the label column when it is not already among them.
+func buildOptions(d Dialect, tm *tableMeta, valueCols []*colMeta, labelCol *colMeta, search string, limit int) (string, []any) {
 	s := newStmt(d)
+	cols := append([]*colMeta{}, valueCols...)
+	if labelCol != nil {
+		dup := false
+		for _, c := range valueCols {
+			if c == labelCol {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			cols = append(cols, labelCol)
+		}
+	}
 	s.write("SELECT ")
-	s.selectList([]*colMeta{valueCol, labelCol})
+	s.selectList(cols)
 	s.write(" FROM ", s.table(tm.t))
 	if search != "" {
 		pattern := "%" + escapeLike(search) + "%"
-		s.write(" WHERE ", s.d.ContainsExpr(s.col(valueCol.c), s.bind(pattern)))
-		if labelCol != valueCol {
-			s.write(" OR ", s.d.ContainsExpr(s.col(labelCol.c), s.bind(pattern)))
+		var alts []string
+		for _, c := range valueCols {
+			alts = append(alts, s.d.ContainsExpr(s.col(c.c), s.bind(pattern)))
 		}
+		if labelCol != nil {
+			seen := false
+			for _, c := range valueCols {
+				seen = seen || c == labelCol
+			}
+			if !seen {
+				alts = append(alts, s.d.ContainsExpr(s.col(labelCol.c), s.bind(pattern)))
+			}
+		}
+		s.write(" WHERE ", strings.Join(alts, " OR "))
 	}
 	var order []string
-	if labelCol != valueCol && labelCol.comparable() {
-		order = append(order, s.col(labelCol.c))
+	if labelCol != nil && labelCol.comparable() {
+		dup := false
+		for _, c := range valueCols {
+			dup = dup || c == labelCol
+		}
+		if !dup {
+			order = append(order, s.col(labelCol.c))
+		}
 	}
-	if valueCol.comparable() {
-		order = append(order, s.col(valueCol.c))
+	for _, c := range valueCols {
+		if c.comparable() {
+			order = append(order, s.col(c.c))
+		}
 	}
 	if len(order) > 0 {
 		s.write(" ORDER BY ", strings.Join(order, ", "))

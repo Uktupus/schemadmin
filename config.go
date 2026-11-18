@@ -45,6 +45,16 @@ type Config struct {
 	// TrustedOrigins are origins ("https://admin.example.com") allowed to
 	// send state-changing requests in addition to the admin's own origin.
 	TrustedOrigins []string
+
+	// AllowReload exposes a "Reload schema" control that re-runs
+	// introspection without restarting the process.
+	AllowReload bool
+	// BulkLimit is the maximum number of rows a bulk delete may take.
+	// Default 100, maximum 500.
+	BulkLimit int
+	// ExportMax is the maximum number of rows a CSV export returns.
+	// Default 10000, maximum 100000.
+	ExportMax int
 }
 
 // TableConfig overrides how one table is presented.

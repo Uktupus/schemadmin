@@ -48,8 +48,10 @@ func (Dialect) Placeholder(n int) string { return "$" + strconv.Itoa(n) }
 // Binary columns are returned as they are; drivers agree on []byte.
 func (Dialect) SelectExpr(quoted string, c *schemadmin.Column) string {
 	switch c.Kind {
-	case schemadmin.KindBool, schemadmin.KindInt, schemadmin.KindBytes:
+	case schemadmin.KindBool, schemadmin.KindInt:
 		return quoted
+	case schemadmin.KindBytes:
+		return "encode(" + quoted + ", 'hex')" // NULL stays NULL
 	case schemadmin.KindDate, schemadmin.KindDateTime:
 		return "(to_json(" + quoted + ") #>> '{}')"
 	case schemadmin.KindDateTimeTZ:

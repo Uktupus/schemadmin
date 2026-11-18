@@ -177,6 +177,46 @@
   document.addEventListener("input", untick);
   document.addEventListener("change", untick);
 
+  // Bulk selection on list pages.
+  function syncBulk() {
+    var form = document.querySelector("[data-bulk]");
+    if (!form) return;
+    var rows = form.querySelectorAll("[data-bulk-row]");
+    var checked = form.querySelectorAll("[data-bulk-row]:checked");
+    var bar = form.querySelector("[data-bulk-bar]");
+    var count = form.querySelector("[data-bulk-count]");
+    var all = form.querySelector("[data-bulk-all]");
+    if (bar) bar.hidden = checked.length === 0;
+    if (count) count.textContent = checked.length + " selected";
+    if (all) {
+      all.checked = rows.length > 0 && checked.length === rows.length;
+      all.indeterminate = checked.length > 0 && checked.length < rows.length;
+    }
+  }
+  document.addEventListener("change", function (event) {
+    var t = event.target;
+    if (!t.matches) return;
+    if (t.matches("[data-bulk-all]")) {
+      t.form.querySelectorAll("[data-bulk-row]").forEach(function (box) { box.checked = t.checked; });
+      syncBulk();
+      return;
+    }
+    if (t.matches("[data-bulk-row]")) syncBulk();
+  });
+  document.addEventListener("submit", function (event) {
+    var form = event.target;
+    if (!form.matches || !form.matches("[data-bulk]")) return;
+    var n = form.querySelectorAll("[data-bulk-row]:checked").length;
+    if (n === 0) {
+      event.preventDefault();
+      return;
+    }
+    if (!window.confirm("Delete " + n + " selected row" + (n === 1 ? "" : "s") + "? This cannot be undone.")) {
+      event.preventDefault();
+    }
+  });
+  syncBulk();
+
   // Foreign keys with too many targets for a select: suggest while typing.
   var timer = null;
   var latest = 0;

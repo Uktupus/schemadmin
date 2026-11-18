@@ -70,6 +70,8 @@ func run(addr, path string) error {
 		// in whoever connects from this machine, which is right for a demo
 		// bound to 127.0.0.1 and wrong for anything else: a real
 		// application checks its own session here.
+		AllowReload: true,
+
 		Authorizer: schemadmin.AuthorizerFunc(func(r *http.Request, action schemadmin.Action, table string) bool {
 			host, _, err := net.SplitHostPort(r.RemoteAddr)
 			if err != nil {

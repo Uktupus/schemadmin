@@ -43,11 +43,27 @@ func scanValue(kind Kind, raw any) value {
 	case string:
 		s = v
 	case []byte:
-		s = string(v)
+		if kind == KindBytes {
+			// SelectExpr returns hex text; some drivers still hand it
+			// over as []byte. Raw blobs (no SelectExpr) are encoded.
+			if isHexDigits(v) {
+				s = strings.ToLower(string(v))
+			} else {
+				s = strings.ToLower(hex.EncodeToString(v))
+			}
+		} else {
+			s = string(v)
+		}
 	case time.Time:
 		s = v.Format(time.RFC3339Nano)
 	default:
 		s = fmt.Sprint(v)
+	}
+	if kind == KindBytes {
+		s = strings.ToLower(strings.TrimSpace(s))
+		if strings.HasPrefix(s, "\\x") { // PostgreSQL bytea hex escape, if ever scanned raw
+			s = s[2:]
+		}
 	}
 	// PostgreSQL hands timestamptz over in UTC without an offset. Say so,
 	// so the text means the same instant when it is sent back.
@@ -264,7 +280,11 @@ func parseInput(c *Column, choices []string, s string) (any, string) {
 		}
 		return t, ""
 	case KindBytes:
-		return nil, "Binary values cannot be edited here."
+		b, msg := parseHexBytes(s)
+		if msg != "" {
+			return nil, msg
+		}
+		return b, ""
 	case KindString:
 		if c.MaxLength > 0 && utf8.RuneCountInString(s) > c.MaxLength {
 			return nil, "Enter at most " + strconv.Itoa(c.MaxLength) + " characters."
@@ -274,6 +294,45 @@ func parseInput(c *Column, choices []string, s string) (any, string) {
 		return nil, "The value contains characters that cannot be stored."
 	}
 	return s, ""
+}
+
+func isHexDigits(b []byte) bool {
+	if len(b)%2 != 0 {
+		return false
+	}
+	for _, c := range b {
+		switch {
+		case c >= '0' && c <= '9', c >= 'a' && c <= 'f', c >= 'A' && c <= 'F':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// parseHexBytes accepts an empty value, a contiguous hex string, or hex
+// with spaces/colons/newlines between bytes. It returns the decoded bytes.
+func parseHexBytes(s string) ([]byte, string) {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == ':' || r == '-':
+			continue
+		case (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F'):
+			b.WriteRune(r)
+		default:
+			return nil, "Enter binary data as hexadecimal (e.g. 00ff10)."
+		}
+	}
+	hexStr := b.String()
+	if len(hexStr)%2 != 0 {
+		return nil, "Hexadecimal values need an even number of digits."
+	}
+	out, err := hex.DecodeString(hexStr)
+	if err != nil {
+		return nil, "Enter binary data as hexadecimal (e.g. 00ff10)."
+	}
+	return out, ""
 }
 
 // Row keys.

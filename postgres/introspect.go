@@ -30,11 +30,11 @@ WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace AS n WHERE n.nspname = s
 	// Ordinary and partitioned tables. The partitions of a partitioned
 	// table are left out: their rows are the parent's rows.
 	tablesQuery = `
-SELECT n.nspname, c.relname
+SELECT n.nspname, c.relname, c.relkind::text
 FROM pg_catalog.pg_class AS c
 JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
 JOIN json_array_elements_text($1::text::json) WITH ORDINALITY AS s(name, ord) ON s.name = n.nspname
-WHERE c.relkind IN ('r', 'p') AND NOT c.relispartition
+WHERE c.relkind IN ('r', 'p', 'v') AND NOT c.relispartition
 ORDER BY s.ord, c.relname`
 
 	// domain_base resolves each domain to the type it is ultimately built
@@ -77,7 +77,7 @@ JOIN pg_catalog.pg_type AS bt ON bt.oid = COALESCE(db.base_oid, a.atttypid)
 JOIN pg_catalog.pg_namespace AS bn ON bn.oid = bt.typnamespace
 LEFT JOIN pg_catalog.pg_attrdef AS ad ON ad.adrelid = a.attrelid AND ad.adnum = a.attnum
 WHERE a.attnum > 0 AND NOT a.attisdropped
-  AND c.relkind IN ('r', 'p') AND NOT c.relispartition
+  AND c.relkind IN ('r', 'p', 'v') AND NOT c.relispartition
 ORDER BY s.ord, c.relname, a.attnum`
 
 	enumsQuery = `
@@ -266,10 +266,11 @@ func loadTables(ctx context.Context, tx *sql.Tx, param string) (*schemadmin.Sche
 	tables := make(map[qualifiedName]*schemadmin.Table)
 	for rows.Next() {
 		var key qualifiedName
-		if err := rows.Scan(&key.schema, &key.name); err != nil {
+		var kind string
+		if err := rows.Scan(&key.schema, &key.name, &kind); err != nil {
 			return nil, nil, fmt.Errorf("postgres: list tables: %w", err)
 		}
-		table := &schemadmin.Table{Schema: key.schema, Name: key.name}
+		table := &schemadmin.Table{Schema: key.schema, Name: key.name, View: kind == "v"}
 		schema.Tables = append(schema.Tables, table)
 		tables[key] = table
 	}

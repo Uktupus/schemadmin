@@ -74,7 +74,7 @@ func TestSelectExpr(t *testing.T) {
 	}{
 		{schemadmin.KindBool, `"col"`},
 		{schemadmin.KindInt, `"col"`},
-		{schemadmin.KindBytes, `"col"`},
+		{schemadmin.KindBytes, `encode("col", 'hex')`}, // unchanged
 		{schemadmin.KindDate, `(to_json("col") #>> '{}')`},
 		{schemadmin.KindDateTime, `(to_json("col") #>> '{}')`},
 		{schemadmin.KindDateTimeTZ, `(to_json("col" AT TIME ZONE 'UTC') #>> '{}')`},

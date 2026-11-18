@@ -13,7 +13,7 @@ func TestBuildStatements(t *testing.T) {
 	d := fakeDialect{}
 
 	const userCols = "READ(‹id›), READ(‹name›), READ(‹email›), CASE WHEN ‹password_hash› IS NULL THEN NULL ELSE 1 END, " +
-		"READ(‹role›), READ(‹active›), length(‹avatar›), READ(‹team_id›), READ(‹joined›)"
+		"READ(‹role›), READ(‹active›), READ(‹avatar›), READ(‹team_id›), READ(‹joined›)"
 
 	tests := []struct {
 		name     string
@@ -94,7 +94,7 @@ func TestBuildStatements(t *testing.T) {
 	add("labels", sql, args,
 		"SELECT READ(‹id›), READ(‹name›) FROM ‹users› WHERE ‹id› IN ($1, $2)", int64(1), int64(2))
 
-	sql, args = buildOptions(d, users, users.byName["id"], users.byName["name"], "ad", 20)
+	sql, args = buildOptions(d, users, []*colMeta{users.byName["id"]}, users.byName["name"], "ad", 20)
 	add("options", sql, args,
 		"SELECT READ(‹id›), READ(‹name›) FROM ‹users› WHERE ‹id› CONTAINS $1 OR ‹name› CONTAINS $2 ORDER BY ‹name›, ‹id› LIMIT $3",
 		"%ad%", "%ad%", int64(20))
@@ -157,7 +157,7 @@ func TestIdentifiersAreQuoted(t *testing.T) {
 	collect(buildDelete(d, tm, []any{int64(1)}))
 	collect(buildCountWhere(d, tm.t, []*Column{col.c}, []any{"v"}))
 	collect(buildLabels(d, tm, tm.pk[0], col, []any{int64(1)}))
-	collect(buildOptions(d, tm, tm.pk[0], col, "s", 5))
+	collect(buildOptions(d, tm, []*colMeta{tm.pk[0]}, col, "s", 5))
 
 	quoted := regexp.MustCompile(`‹[^›]*›`)
 	for _, sql := range statements {

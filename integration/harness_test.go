@@ -73,6 +73,9 @@ func tableRef(d schemadmin.Dialect, table *schemadmin.Table) string {
 // of the given columns and nothing else.
 func insertStatement(d schemadmin.Dialect, table *schemadmin.Table, columns []*schemadmin.Column) (string, []any) {
 	if len(columns) == 0 {
+		if d.Name() == "mysql" {
+			return "INSERT INTO " + tableRef(d, table) + " () VALUES ()", nil
+		}
 		return "INSERT INTO " + tableRef(d, table) + " DEFAULT VALUES", nil
 	}
 	var names, marks []string
@@ -208,6 +211,9 @@ func checkNullability(t *testing.T, d schemadmin.Dialect, open func(t *testing.T
 func checkRequiredColumns(t *testing.T, d schemadmin.Dialect, db *sql.DB, schema *schemadmin.Schema) {
 	for _, table := range schema.Tables {
 		t.Run(qualified(table.Schema, table.Name), func(t *testing.T) {
+			if table.View {
+				t.Skip("views are read-only")
+			}
 			var required, generated []*schemadmin.Column
 			for _, c := range table.Columns {
 				switch {
@@ -287,7 +293,12 @@ func checkHostileIdentifiers(t *testing.T, d schemadmin.Dialect, db *sql.DB, sch
 	}
 	opts := schemadmin.IntrospectOptions{}
 	if schemaName != "" {
-		mustExec(t, db, "CREATE SCHEMA "+d.QuoteIdent(schemaName))
+		switch d.Name() {
+		case "mysql":
+			mustExec(t, db, "CREATE DATABASE IF NOT EXISTS "+d.QuoteIdent(schemaName))
+		default:
+			mustExec(t, db, "CREATE SCHEMA "+d.QuoteIdent(schemaName))
+		}
 		opts.Schemas = []string{schemaName}
 	}
 	mustExec(t, db, "CREATE TABLE "+qualify("canary")+" (id INTEGER PRIMARY KEY)")
@@ -346,6 +357,9 @@ func checkHostileIdentifiers(t *testing.T, d schemadmin.Dialect, db *sql.DB, sch
 		want := any("x")
 		if c.Kind == schemadmin.KindInt {
 			want = int64(1)
+		}
+		if b, ok := got.([]byte); ok {
+			got = string(b)
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("column %q: read %#v, want %#v", c.Name, got, want)

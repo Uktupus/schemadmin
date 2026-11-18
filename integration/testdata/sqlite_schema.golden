@@ -1,3 +1,7 @@
+view active_users
+  pk -
+  col id INTEGER int null
+  col email TEXT text null
 table imports
   pk id
   col id INTEGER int null

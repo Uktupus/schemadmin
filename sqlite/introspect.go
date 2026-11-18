@@ -17,16 +17,16 @@ import (
 // pragma_table_list, so introspection needs no identifier quoting at all.
 const (
 	tablesQuery = `
-SELECT l.name, l.wr, COALESCE(m.sql, '')
+SELECT l.name, l.wr, COALESCE(m.sql, ''), l.type
 FROM pragma_table_list AS l
-LEFT JOIN main.sqlite_master AS m ON m.type = 'table' AND m.name = l.name
-WHERE l.schema = 'main' AND l.type = 'table'
+LEFT JOIN main.sqlite_master AS m ON m.type IN ('table', 'view') AND m.name = l.name
+WHERE l.schema = 'main' AND l.type IN ('table', 'view')
 ORDER BY l.name`
 
 	columnsQuery = `
 SELECT l.name, x.name, COALESCE(x.type, ''), x."notnull", x.dflt_value, x.pk, x.hidden
 FROM pragma_table_list AS l, pragma_table_xinfo(l.name, 'main') AS x
-WHERE l.schema = 'main' AND l.type = 'table'
+WHERE l.schema = 'main' AND l.type IN ('table', 'view')
 ORDER BY l.name, x.cid`
 
 	primaryKeyIndexQuery = `
@@ -66,10 +66,11 @@ type foreignKeyInfo struct {
 	onDelete string
 }
 
-// Introspect reads the ordinary tables of the main database. Views, virtual
-// tables, their shadow tables and SQLite's internal tables are not tables
-// in this sense and are skipped. A foreign key that SQLite accepted but can
-// never enforce is left out and logged at warn level.
+// Introspect reads the ordinary tables and views of the main database.
+// Virtual tables, their shadow tables and SQLite's internal tables are
+// skipped. Views are marked Table.View and have no primary key or foreign
+// keys. A foreign key that SQLite accepted but can never enforce is left
+// out and logged at warn level.
 func (Dialect) Introspect(ctx context.Context, db *sql.DB, opts schemadmin.IntrospectOptions) (*schemadmin.Schema, error) {
 	for _, s := range opts.Schemas {
 		if s != "main" {
@@ -182,8 +183,9 @@ func loadTables(ctx context.Context, tx *sql.Tx) ([]*tableInfo, map[string]*tabl
 			name         string
 			withoutRowID bool
 			ddl          string
+			kind         string
 		)
-		if err := rows.Scan(&name, &withoutRowID, &ddl); err != nil {
+		if err := rows.Scan(&name, &withoutRowID, &ddl, &kind); err != nil {
 			return nil, nil, fmt.Errorf("sqlite: list tables: %w", err)
 		}
 		// The "sqlite_" prefix is reserved for internal tables.
@@ -191,7 +193,7 @@ func loadTables(ctx context.Context, tx *sql.Tx) ([]*tableInfo, map[string]*tabl
 			continue
 		}
 		info := &tableInfo{
-			table:        &schemadmin.Table{Name: name},
+			table:        &schemadmin.Table{Name: name, View: kind == "view"},
 			withoutRowID: withoutRowID,
 			ddl:          ddl,
 			pkPosition:   make(map[string]int),
@@ -324,6 +326,10 @@ func loadForeignKeys(ctx context.Context, tx *sql.Tx, byName map[string]*tableIn
 // finishPrimaryKey orders the key columns and detects the rowid alias.
 func finishPrimaryKey(info *tableInfo) {
 	t := info.table
+	if t.View {
+		t.PrimaryKey = nil
+		return
+	}
 	for name := range info.pkPosition {
 		t.PrimaryKey = append(t.PrimaryKey, name)
 	}

@@ -1,3 +1,7 @@
+view app.active_users
+  pk -
+  col id bigint int null
+  col email app.email string notnull max=254
 table app.empty
   pk -
 table app.event_notes

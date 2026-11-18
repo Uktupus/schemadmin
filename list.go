@@ -230,11 +230,13 @@ func (st *listState) query(tm *tableMeta) (*listQuery, []string) {
 }
 
 type listBody struct {
-	Label    string
-	Name     string
-	Notice   string
-	Warnings []string
-	NewURL   string
+	Label     string
+	Name      string
+	Notice    string
+	Warnings  []string
+	NewURL    string
+	ExportURL string
+	BulkURL   string
 
 	Action     string
 	Keep       []hiddenField
@@ -246,6 +248,7 @@ type listBody struct {
 	Columns []headCell
 	Rows    []listRow
 	Span    int
+	Select  bool // rows may be selected for bulk actions
 
 	Range   string
 	PrevURL string
@@ -261,6 +264,7 @@ type chip struct {
 
 type listRow struct {
 	URL   string // the row's own page; empty when the row cannot be addressed
+	Key   string // URL key for bulk actions; empty when the row cannot be addressed
 	Cells []cell
 }
 
@@ -309,6 +313,7 @@ var notices = map[string]string{
 	"saved":    "Changes saved.",
 	"deleted":  "Row deleted.",
 	"nochange": "Nothing was changed.",
+	"reloaded": "Schema reloaded.",
 }
 
 // columnMenu builds the header menu of a column, or nil when there is
@@ -416,12 +421,23 @@ func (a *Admin) handleList(w http.ResponseWriter, r *http.Request) {
 		Notice:     notices[params.Get("m")],
 		Warnings:   warnings,
 		Action:     path,
+		ExportURL:  path + "/export",
 		Searchable: tm.searchable(),
 		Search:     st.q,
 		Span:       len(tm.listCols),
 	}
 	if rq.can(ActionCreate, tm) {
 		body.NewURL = a.newURL(tm)
+	}
+	if rq.can(ActionDelete, tm) && len(tm.pk) > 0 {
+		body.BulkURL = path + "/bulk-delete"
+		body.Select = true
+		body.Span++
+	}
+	exportQ := st.values()
+	delete(exportQ, "page")
+	if enc := exportQ.Encode(); enc != "" {
+		body.ExportURL += "?" + enc
 	}
 
 	// The search form keeps the ordering and the filters.
@@ -469,6 +485,7 @@ func (a *Admin) handleList(w http.ResponseWriter, r *http.Request) {
 		lr := listRow{Cells: make([]cell, len(tm.listCols))}
 		if key, ok := tm.rowKey(row); ok {
 			lr.URL = a.rowURL(tm, key)
+			lr.Key = key
 		}
 		for i, c := range tm.listCols {
 			v := row[c.idx]

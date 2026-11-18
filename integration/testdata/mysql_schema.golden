@@ -1,0 +1,98 @@
+view app.active_users
+  pk -
+  col id bigint int notnull default=0
+  col email varchar(254) string notnull max=254
+table app.empty
+  pk -
+  col dummy int int null
+table app.event_notes
+  pk -
+  col event_id bigint int notnull
+  col happened_at timestamp datetimetz notnull
+  col note text text null
+  fk (event_id, happened_at) -> app.events(id, happened_at) delete=no action update=no action
+table app.events
+  pk id, happened_at
+  col id bigint int notnull auto
+  col happened_at timestamp datetimetz notnull
+  col kind text text notnull
+  col user_id bigint int null
+  fk (user_id) -> app.users(id) delete=set null update=no action
+table app.post_tags
+  pk tag_code, post_id
+  col post_id int int notnull
+  col tag_code varchar(64) string notnull max=64
+  col added_at timestamp datetimetz null
+  fk (post_id) -> app.posts(id) delete=cascade update=no action
+  fk (tag_code) -> app.tags(code) delete=restrict update=cascade
+table app.posts
+  pk id
+  col id int int notnull auto
+  col author_id bigint int notnull
+  col reviewer_id bigint int null
+  col parent_id int int null
+  col title text text notnull
+  col body text text null
+  col status varchar(32) string notnull default=draft max=32
+  col word_count int int null generated
+  col revision bigint int notnull default=0
+  fk (author_id) -> app.users(id) delete=cascade update=no action
+  fk (parent_id) -> app.posts(id) delete=restrict update=no action
+  fk (reviewer_id) -> app.users(id) delete=set null update=cascade
+table app.tag_notes
+  pk id
+  col id bigint int notnull auto
+  col post_id int int notnull
+  col tag_code varchar(64) string notnull max=64
+  col note text text null
+  fk (post_id, tag_code) -> app.post_tags(post_id, tag_code) delete=cascade update=no action
+table app.tag_votes
+  pk -
+  col voter_id bigint int notnull
+  col tag_code varchar(64) string notnull max=64
+  col post_id int int notnull
+  fk (tag_code, post_id) -> app.post_tags(tag_code, post_id) delete=no action update=no action
+  fk (voter_id) -> app.users(id) delete=no action update=no action
+table app.tags
+  pk code
+  col code varchar(64) string notnull max=64
+  col label text text notnull
+table app.users
+  pk id
+  col id bigint int notnull auto
+  col email varchar(254) string notnull max=254
+  col name varchar(100) string notnull default= max=100
+  col role enum('admin','member','guest') enum notnull default=member enum=admin|member|guest
+  col is_active tinyint(1) bool notnull default=1
+  col password_hash text text notnull
+  col balance decimal(10,2) decimal null
+  col rating float float null
+  col score double float null
+  col avatar blob bytes null
+  col settings json json null
+  col legacy json json null
+  col external_id char(36) string notnull default=uuid() max=36
+  col country char(2) string null max=2
+  col nickname varchar(255) string null max=255
+  col birthday date date null
+  col wake_time time time null
+  col created_at timestamp datetimetz notnull default=CURRENT_TIMESTAMP
+  col updated_at datetime datetime null
+  col tags json json null
+  col session_note text text null
+  col referral varchar(255) string null default=none max=255
+table billing.invoices
+  pk id
+  col id bigint int notnull auto
+  col user_id bigint int notnull
+  col archived_as bigint int null
+  col total decimal(20,2) decimal notnull
+  col issued_on date date notnull default=curdate()
+  fk (archived_as) -> archive.invoices(id) delete=set default update=no action
+  fk (user_id) -> billing.users(user_id) delete=no action update=no action
+table billing.users
+  pk user_id
+  col user_id bigint int notnull
+  col currency enum('EUR','USD') enum notnull default=EUR enum=EUR|USD
+  col vat_number text text null
+  fk (user_id) -> app.users(id) delete=cascade update=no action

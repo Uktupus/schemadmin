@@ -48,6 +48,35 @@ type Dialect interface {
 	ClassifyError(err error) ConstraintKind
 }
 
+// ReturningDialect is implemented by dialects that support
+// INSERT … RETURNING. Dialects that do not (notably MySQL) omit it; the
+// admin then uses LastInsertId for a single auto-increment key, or
+// redirects to the list when the new key cannot be read back.
+type ReturningDialect interface {
+	SupportsReturning() bool
+}
+
+// EmptyInsertDialect customises an INSERT that supplies no columns.
+// MySQL wants "INSERT INTO t () VALUES ()"; PostgreSQL and SQLite use
+// "INSERT INTO t DEFAULT VALUES".
+type EmptyInsertDialect interface {
+	EmptyInsert(quotedTable string) string
+}
+
+func supportsReturning(d Dialect) bool {
+	if r, ok := d.(ReturningDialect); ok {
+		return r.SupportsReturning()
+	}
+	return true
+}
+
+func emptyInsertSQL(d Dialect, quotedTable string) string {
+	if e, ok := d.(EmptyInsertDialect); ok {
+		return e.EmptyInsert(quotedTable)
+	}
+	return "INSERT INTO " + quotedTable + " DEFAULT VALUES"
+}
+
 // IntrospectOptions narrows what a Dialect reads.
 type IntrospectOptions struct {
 	// Schemas lists the namespaces to read. Empty means the dialect's

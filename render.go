@@ -79,8 +79,11 @@ type navItem struct {
 
 // nav lists the tables this request may view.
 func (a *Admin) nav(rq *request, current *tableMeta) []navItem {
+	a.mu.RLock()
+	tables := a.tables
+	a.mu.RUnlock()
 	var items []navItem
-	for _, tm := range a.tables {
+	for _, tm := range tables {
 		if rq.can(ActionView, tm) {
 			items = append(items, navItem{Label: tm.label, URL: a.listURL(tm), Current: tm == current})
 		}
@@ -151,8 +154,10 @@ func (a *Admin) handleStatic(w http.ResponseWriter, r *http.Request) {
 }
 
 type indexBody struct {
-	Heading string
-	Tables  []indexTable
+	Heading   string
+	Notice    string
+	ReloadURL string
+	Tables    []indexTable
 }
 
 type indexTable struct {
@@ -160,14 +165,24 @@ type indexTable struct {
 	Name    string
 	URL     string
 	Columns int
+	View    bool
 }
 
 func (a *Admin) handleIndex(w http.ResponseWriter, r *http.Request) {
 	rq := a.request(r)
-	body := indexBody{Heading: a.title}
-	for _, tm := range a.tables {
+	body := indexBody{Heading: a.title, Notice: notices[r.URL.Query().Get("m")]}
+	if a.allowReload {
+		body.ReloadURL = a.base + "/reload"
+	}
+	a.mu.RLock()
+	tables := a.tables
+	a.mu.RUnlock()
+	for _, tm := range tables {
 		if rq.can(ActionView, tm) {
-			body.Tables = append(body.Tables, indexTable{Label: tm.label, Name: tm.key, URL: a.listURL(tm), Columns: len(tm.cols)})
+			body.Tables = append(body.Tables, indexTable{
+				Label: tm.label, Name: tm.key, URL: a.listURL(tm),
+				Columns: len(tm.cols), View: tm.t.View,
+			})
 		}
 	}
 	a.render(w, rq, http.StatusOK, "index", "Tables", nil, body)
@@ -191,7 +206,8 @@ func showValue(c *colMeta, v value, limit int) cell {
 	case c.masked:
 		return cell{Text: "••••••", State: "masked"}
 	case c.c.Kind == KindBytes:
-		return cell{Text: v.S + " bytes", State: "muted"}
+		n := len(v.S) / 2
+		return cell{Text: groupDigits(int64(n)) + " bytes", State: "muted"}
 	case v.S == "":
 		return cell{Text: "empty", State: "empty"}
 	}

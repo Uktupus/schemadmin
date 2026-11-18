@@ -106,7 +106,8 @@ func TestParseInput(t *testing.T) {
 		{"uuid too short", col(KindUUID), nil, "6ba7b810", nil, false},
 		{"uuid with a wrong character", col(KindUUID), nil, "6ba7b810-9dad-11d1-80b4-00c04fd430cg", nil, false},
 
-		{"binary", col(KindBytes), nil, "abc", nil, false},
+		{"binary hex", col(KindBytes), nil, "00ff10", []byte{0x00, 0xff, 0x10}, true},
+		{"binary bad", col(KindBytes), nil, "xyz", nil, false},
 
 		{"choice", col(KindEnum), []string{"a", "b"}, "b", "b", true},
 		{"not a choice", col(KindEnum), []string{"a", "b"}, "c", nil, false},
@@ -314,7 +315,7 @@ func TestShowValue(t *testing.T) {
 		{"line breaks", text, value{S: "a\r\nb"}, cell{Text: "a b"}},
 		{"long", text, value{S: strings.Repeat("é", 100)}, cell{Text: strings.Repeat("é", 80) + "…"}},
 		{"timestamp", stamp, value{S: "2024-01-02T03:04:05Z"}, cell{Text: "2024-01-02 03:04:05 UTC"}},
-		{"binary", blob, value{S: "12"}, cell{Text: "12 bytes", State: "muted"}},
+		{"binary", blob, value{S: "00112233445566778899aabb"}, cell{Text: "12 bytes", State: "muted"}},
 	}
 	for _, tt := range tests {
 		if got := showValue(tt.col, tt.v, 80); got != tt.want {

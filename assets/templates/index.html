@@ -4,14 +4,20 @@
 <h1>{{.Heading}}</h1>
 <p class="sub">{{len .Tables}} {{if eq (len .Tables) 1}}table{{else}}tables{{end}}</p>
 </div>
+{{if .ReloadURL}}
+<form method="post" action="{{.ReloadURL}}">
+<button class="btn" type="submit">Reload schema</button>
+</form>
+{{end}}
 </header>
+{{with .Notice}}<p class="notice" role="status">{{.}}</p>{{end}}
 {{if .Tables}}
 <div class="card">
 <div class="table-wrap">
 <table class="grid">
 <thead><tr><th scope="col"><span class="th-plain">Table</span></th><th scope="col"><span class="th-plain">Name in database</span></th><th scope="col" class="num"><span class="th-plain">Columns</span></th></tr></thead>
 <tbody>
-{{range .Tables}}<tr data-href="{{.URL}}"><td><a href="{{.URL}}">{{.Label}}</a></td><td class="mono muted">{{.Name}}</td><td class="num">{{.Columns}}</td></tr>
+{{range .Tables}}<tr data-href="{{.URL}}"><td><a href="{{.URL}}">{{.Label}}</a>{{if .View}} <span class="extra">view</span>{{end}}</td><td class="mono muted">{{.Name}}</td><td class="num">{{.Columns}}</td></tr>
 {{end}}</tbody>
 </table>
 </div>

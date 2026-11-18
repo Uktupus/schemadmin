@@ -42,13 +42,17 @@ type colMeta struct {
 	filter   bool // offered as a filter in the column's header menu
 	widget   Widget
 	choices  []string
-	fk       *fkMeta // set when the column alone is a foreign key
+	fk       *fkMeta // set when this column carries a foreign-key control
+	fkFollow bool    // set when another column's composite FK covers this one
 }
 
-// fkMeta is a single-column foreign key to another administered table.
+// fkMeta is a foreign key to another administered table. A single-column
+// key names col; a composite key names cols and refCols together.
 type fkMeta struct {
-	target *tableMeta
-	col    *colMeta // referenced column
+	target  *tableMeta
+	col     *colMeta   // referenced column of a single-column key
+	cols    []*colMeta // local columns of a composite key
+	refCols []*colMeta // referenced columns of a composite key
 }
 
 // reference is a foreign key seen from the table it points to.
@@ -74,7 +78,7 @@ func (tm *tableMeta) searchable() bool {
 
 // writable reports whether forms may set the column at all.
 func (c *colMeta) writable() bool {
-	return !c.c.Generated && !c.readOnly && c.c.Kind != KindBytes
+	return !c.c.Generated && !c.readOnly
 }
 
 // comparable reports whether the column can be sorted and filtered on.
@@ -90,7 +94,7 @@ func (c *colMeta) comparable() bool {
 }
 
 // readable reports whether the column's values are read at all.
-func (c *colMeta) readable() bool { return !c.masked && c.c.Kind != KindBytes }
+func (c *colMeta) readable() bool { return !c.masked }
 
 // ranged reports whether "from" and "to" bounds make sense for the column.
 func (c *colMeta) ranged() bool {
@@ -216,10 +220,31 @@ func buildMeta(schema *Schema, cfg *Config, logger *slog.Logger) ([]*tableMeta, 
 					c.isKey = true
 				}
 			}
-			if len(fk.Columns) == 1 {
+			switch len(fk.Columns) {
+			case 1:
 				from, to := tm.byName[fk.Columns[0]], target.byName[fk.RefColumns[0]]
 				if from != nil && to != nil && from.fk == nil {
 					from.fk = &fkMeta{target: target, col: to}
+				}
+			default:
+				var locals, remotes []*colMeta
+				ok := true
+				for i, name := range fk.Columns {
+					from, to := tm.byName[name], target.byName[fk.RefColumns[i]]
+					if from == nil || to == nil || from.fk != nil {
+						ok = false
+						break
+					}
+					locals, remotes = append(locals, from), append(remotes, to)
+				}
+				if !ok {
+					continue
+				}
+				// The first column carries the control; the rest are
+				// filled from the same submission.
+				locals[0].fk = &fkMeta{target: target, cols: locals, refCols: remotes}
+				for _, local := range locals[1:] {
+					local.fkFollow = true
 				}
 			}
 		}
@@ -247,8 +272,18 @@ func buildMeta(schema *Schema, cfg *Config, logger *slog.Logger) ([]*tableMeta, 
 	}
 	for _, tm := range tables {
 		for _, c := range tm.cols {
-			if c.fk != nil && (c.fk.col.masked || c.fk.col.c.Kind == KindBytes) {
+			if c.fk == nil {
+				continue
+			}
+			if c.fk.col != nil && (c.fk.col.masked || c.fk.col.c.Kind == KindBytes) {
 				c.fk = nil
+				continue
+			}
+			for _, r := range c.fk.refCols {
+				if r.masked || r.c.Kind == KindBytes {
+					c.fk = nil
+					break
+				}
 			}
 		}
 	}
@@ -261,12 +296,15 @@ func buildTable(t *Table, key string, tc TableConfig, cfg *Config) (*tableMeta, 
 		key:      key,
 		seg:      escapeKeyPart(key),
 		label:    tc.Label,
-		readOnly: tc.ReadOnly,
+		readOnly: tc.ReadOnly || t.View,
 		pageSize: tc.PageSize,
 		byName:   map[string]*colMeta{},
 	}
 	if tm.label == "" {
 		tm.label = humanize(t.Name)
+		if t.View {
+			tm.label += " (view)"
+		}
 	}
 	if tm.pageSize <= 0 {
 		tm.pageSize = cfg.PageSize

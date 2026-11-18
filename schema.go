@@ -112,19 +112,23 @@ func (s *Schema) Table(schema, name string) *Table {
 	return nil
 }
 
-// Table describes one database table.
+// Table describes one database table or view.
 type Table struct {
 	// Schema is the namespace the table lives in, or "" for databases
 	// without schemas.
 	Schema string
 	Name   string
+	// View reports that this relation is a view. Views are listed and can
+	// be read, but the admin never writes to them: inserts, updates and
+	// deletes are refused whatever the Authorizer says.
+	View bool
 	// Columns are in the table's declared order.
 	Columns []*Column
 	// PrimaryKey lists the key columns in key order. It is empty when the
 	// table has no primary key.
 	PrimaryKey []string
 	// ForeignKeys are the constraints declared on this table, in the order
-	// they were declared.
+	// they were declared. Views have none.
 	ForeignKeys []*ForeignKey
 }
 

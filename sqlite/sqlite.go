@@ -42,7 +42,11 @@ func (Dialect) Placeholder(int) string { return "?" }
 // The plus also hides the column from the query planner, which is why the
 // expression must stay in the select list: in a WHERE, ORDER BY or join
 // condition it would keep SQLite from using an index on the column.
-func (Dialect) SelectExpr(quoted string, _ *schemadmin.Column) string {
+func (Dialect) SelectExpr(quoted string, c *schemadmin.Column) string {
+	if c.Kind == schemadmin.KindBytes {
+		// hex() returns uppercase and turns NULL into ''; keep NULL as NULL.
+		return "CASE WHEN " + quoted + " IS NULL THEN NULL ELSE lower(hex(" + quoted + ")) END"
+	}
 	return "+" + quoted
 }
 

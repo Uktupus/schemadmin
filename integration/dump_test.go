@@ -15,7 +15,11 @@ import (
 func dumpSchema(s *schemadmin.Schema) string {
 	var b strings.Builder
 	for _, t := range s.Tables {
-		fmt.Fprintf(&b, "table %s\n", qualified(t.Schema, t.Name))
+		kind := "table"
+		if t.View {
+			kind = "view"
+		}
+		fmt.Fprintf(&b, "%s %s\n", kind, qualified(t.Schema, t.Name))
 		pk := "-"
 		if len(t.PrimaryKey) > 0 {
 			pk = strings.Join(t.PrimaryKey, ", ")

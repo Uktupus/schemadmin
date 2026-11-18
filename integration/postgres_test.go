@@ -353,7 +353,7 @@ func TestPostgresSelectExpr(t *testing.T) {
 			`{"b":1,  "a":2}`,                      // raw: json keeps the text
 			"6ba7b810-9dad-11d1-80b4-00c04fd430c8", // u
 			"ok",                                   // m
-			[]byte{1, 2},                           // b
+			"0102",                                 // b: hex from SelectExpr
 			"{a,b}",                                // tags
 			"10.0.0.1/32",                          // ip
 			"1 day 02:00:00",                       // span

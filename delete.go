@@ -51,9 +51,10 @@ func effect(action FKAction, enforced bool) (text string, blocks bool) {
 	return "prevent this row from being deleted", true
 }
 
-// dependents finds the rows that refer to row. It reads other tables, so
-// each is subject to ActionView: for a table the request may not view,
-// nothing is revealed beyond the fact that something refers to the row.
+// dependents finds the rows that refer to row, including those that would
+// be removed by a cascade of cascades. It reads other tables, so each is
+// subject to ActionView: for a table the request may not view, nothing is
+// revealed beyond the fact that something refers to the row.
 func (a *Admin) dependents(rq *request, tm *tableMeta, row []value, body *deleteBody) {
 	enforced := true
 	if checker, ok := a.d.(ForeignKeyChecker); ok && len(tm.refs) > 0 {
@@ -64,69 +65,148 @@ func (a *Admin) dependents(rq *request, tm *tableMeta, row []value, body *delete
 			enforced = false
 		}
 	}
+	type hop struct {
+		tm    *tableMeta
+		row   []value
+		via   string // how we reached this row; empty for the root
+		depth int
+	}
+	seen := map[string]bool{tm.key + "\x00" + encodeKeyFromRow(tm, row): true}
+	queue := []hop{{tm: tm, row: row}}
 	unknown := false
-	for _, ref := range tm.refs {
-		if !rq.can(ActionView, ref.from) {
-			// Not read at all. The page only says that such tables exist.
-			body.Hidden = true
-			continue
-		}
-		args := make([]any, len(ref.toCols))
-		link := url.Values{}
-		usable, linkable, null := true, true, false
-		for i, to := range ref.toCols {
-			if to == nil || to.masked || to.c.Kind == KindBytes {
-				usable = false
-				break
+	// Aggregates per target table: direct dependents keep their effect;
+	// transitive ones reached only through CASCADE are counted separately.
+	type agg struct {
+		ref      reference
+		count    int64
+		link     url.Values
+		linkable bool
+		direct   bool
+	}
+	byTable := map[*tableMeta]*agg{}
+
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for _, ref := range cur.tm.refs {
+			if !rq.can(ActionView, ref.from) {
+				body.Hidden = true
+				continue
 			}
-			v := row[to.idx]
-			if v.Null {
-				null = true // nothing refers to a NULL
-				break
+			args := make([]any, len(ref.toCols))
+			link := url.Values{}
+			usable, linkable, null := true, true, false
+			for i, to := range ref.toCols {
+				if to == nil || to.masked || to.c.Kind == KindBytes {
+					usable = false
+					break
+				}
+				v := cur.row[to.idx]
+				if v.Null {
+					null = true
+					break
+				}
+				arg, msg := parseInput(ref.fromCols[i], nil, v.S)
+				if msg != "" {
+					usable = false
+					break
+				}
+				args[i] = arg
+				if from := ref.from.byName[ref.fromCols[i].Name]; from != nil && from.comparable() {
+					link.Set("eq."+from.c.Name, v.S)
+				} else {
+					linkable = false
+				}
 			}
-			arg, msg := parseInput(ref.fromCols[i], nil, v.S)
-			if msg != "" {
-				usable = false
-				break
+			if null {
+				continue
 			}
-			args[i] = arg
-			if from := ref.from.byName[ref.fromCols[i].Name]; from != nil && from.comparable() {
-				link.Set("eq."+from.c.Name, v.S)
+			if !usable {
+				unknown = true
+				continue
+			}
+			n, counted := a.countWhere(rq.r.Context(), ref.from.t, ref.fromCols, args)
+			if !counted {
+				unknown = true
+				continue
+			}
+			if n == 0 {
+				continue
+			}
+			direct := cur.depth == 0
+			if a := byTable[ref.from]; a != nil {
+				if direct {
+					a.direct = true
+					a.ref = *ref
+					a.link, a.linkable = link, linkable
+				}
+				if direct {
+					a.count = n // prefer the direct count for the listed table
+				}
 			} else {
-				linkable = false
+				byTable[ref.from] = &agg{ref: *ref, count: n, link: link, linkable: linkable, direct: direct}
+			}
+			text, blocks := effect(ref.fk.OnDelete, enforced)
+			if blocks && direct {
+				body.Blocked = true
+			}
+			if !enforced {
+				body.Unenforced = true
+			}
+			_ = text
+			// Walk into cascaded rows so the confirmation can name tables
+			// that disappear only because of a cascade chain.
+			if enforced && ref.fk.OnDelete == FKCascade && cur.depth < 3 && n <= 20 && len(ref.from.pk) > 0 {
+				q := &listQuery{limit: int(n), filters: nil}
+				for i, c := range ref.fromCols {
+					cm := ref.from.byName[c.Name]
+					if cm == nil {
+						continue
+					}
+					q.filters = append(q.filters, filter{col: cm, op: opEq, arg: args[i]})
+				}
+				children, _, err := a.list(rq.r.Context(), ref.from, q)
+				if err != nil {
+					unknown = true
+					continue
+				}
+				for _, child := range children {
+					id := ref.from.key + "\x00" + encodeKeyFromRow(ref.from, child)
+					if seen[id] {
+						continue
+					}
+					seen[id] = true
+					queue = append(queue, hop{tm: ref.from, row: child, depth: cur.depth + 1})
+				}
 			}
 		}
-		if null {
-			continue
+	}
+
+	for from, g := range byTable {
+		text, blocks := effect(g.ref.fk.OnDelete, enforced)
+		if !g.direct {
+			text = "will be deleted by a cascade from another table"
+			blocks = false
 		}
-		if !usable {
-			unknown = true
-			continue
-		}
-		n, counted := a.countWhere(rq.r.Context(), ref.from.t, ref.fromCols, args)
-		if !counted {
-			unknown = true
-			continue
-		}
-		if n == 0 {
-			continue
-		}
-		text, blocks := effect(ref.fk.OnDelete, enforced)
 		if blocks {
 			body.Blocked = true
 		}
-		if !enforced {
-			body.Unenforced = true
-		}
-		d := dependent{Table: ref.from.label, Count: groupDigits(n), Effect: text}
-		if linkable {
-			d.URL = withQuery(a.listURL(ref.from), link)
+		d := dependent{Table: from.label, Count: groupDigits(g.count), Effect: text}
+		if g.direct && g.linkable {
+			d.URL = withQuery(a.listURL(from), g.link)
 		}
 		body.Dependents = append(body.Dependents, d)
 	}
 	if unknown {
 		body.Unknown = "Some tables could not be checked for rows that refer to this one."
 	}
+}
+
+func encodeKeyFromRow(tm *tableMeta, row []value) string {
+	if k, ok := tm.rowKey(row); ok {
+		return k
+	}
+	return ""
 }
 
 // deleteTarget resolves the table and row of a delete request.

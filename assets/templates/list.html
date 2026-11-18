@@ -4,7 +4,10 @@
 <h1>{{.Label}}</h1>
 <p class="sub mono">{{.Name}}</p>
 </div>
+<div class="head-actions">
+{{if .ExportURL}}<a class="btn" href="{{.ExportURL}}">Export CSV</a>{{end}}
 {{if .NewURL}}<a class="btn primary" href="{{.NewURL}}" data-modal><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>New row</a>{{end}}
+</div>
 </header>
 {{with .Notice}}<p class="notice" role="status">{{.}}</p>{{end}}
 {{range .Warnings}}<p class="notice warn" role="status">{{.}}</p>
@@ -27,16 +30,25 @@
 {{end}}
 </div>
 {{end}}
+{{if .BulkURL}}<form method="post" action="{{.BulkURL}}" data-bulk>{{end}}
 <div class="card" data-list>
+{{if .BulkURL}}
+<div class="bulk-bar" hidden data-bulk-bar>
+<span data-bulk-count>0 selected</span>
+<button class="btn danger small" type="submit" data-bulk-confirm>Delete selected</button>
+</div>
+{{end}}
 <div class="table-wrap">
 <table class="grid">
 <thead>
 <tr>
+{{if .Select}}<th scope="col" class="check"><input type="checkbox" data-bulk-all aria-label="Select all rows on this page"></th>{{end}}
 {{range .Columns}}<th scope="col"{{if .Num}} class="num"{{end}}{{if .Sort}} aria-sort="{{.Sort}}"{{end}}>{{if .Menu}}<button type="button" class="th-btn{{if .Filtered}} on{{end}}" popovertarget="{{.Menu.ID}}"><span>{{.Label}}</span>{{if eq .Sort "ascending"}}<svg class="th-ico" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 13V3M4 7l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>{{else if eq .Sort "descending"}}<svg class="th-ico" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M8 3v10M4 9l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>{{end}}{{if .Filtered}}<svg class="th-ico" viewBox="0 0 16 16" width="12" height="12" aria-label="Filtered"><path d="M2.5 4h11M4.5 8h7M6.5 12h3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>{{end}}<svg class="th-caret" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>{{else}}<span class="th-plain">{{.Label}}</span>{{end}}</th>
 {{end}}</tr>
 </thead>
 <tbody>
 {{range .Rows}}<tr{{if .URL}} data-row="{{.URL}}"{{end}}>
+{{if $.Select}}<td class="check">{{if .Key}}<input type="checkbox" name="key" value="{{.Key}}" data-bulk-row>{{end}}</td>{{end}}
 {{range .Cells}}<td{{if .Num}} class="num"{{end}}>{{template "cell" .}}</td>
 {{end}}</tr>
 {{else}}<tr><td class="none" colspan="{{.Span}}">No rows match.</td></tr>
@@ -51,6 +63,7 @@
 </span>
 </footer>
 </div>
+{{if .BulkURL}}</form>{{end}}
 {{range .Columns}}{{with .Menu}}
 <div class="menu" id="{{.ID}}" popover>
 {{if .AscURL}}

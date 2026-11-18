@@ -251,7 +251,7 @@ func TestSQLiteSelectExpr(t *testing.T) {
 		int64(42),              // n
 		1.5,                    // r
 		"text",                 // s
-		[]byte{1, 2},           // b
+		"0102",                 // b: hex text from SelectExpr
 		12.3,                   // amount: NUMERIC affinity turned the text '12.30' into a real
 		`{"a":1}`,              // doc
 	}

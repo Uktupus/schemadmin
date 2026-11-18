@@ -26,8 +26,21 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+          MYSQL_DATABASE: schemadmin
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot --silent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     env:
       SCHEMADMIN_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+      SCHEMADMIN_MYSQL_DSN: root@tcp(127.0.0.1:3306)/schemadmin?parseTime=true&multiStatements=true
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -44,7 +57,7 @@ jobs:
       - name: Unit tests
         run: go vet ./... && go test -race ./...
 
-      - name: Integration tests (SQLite and PostgreSQL)
+      - name: Integration tests (SQLite, PostgreSQL, MySQL)
         working-directory: integration
         run: go vet ./... && go test -race ./...
 

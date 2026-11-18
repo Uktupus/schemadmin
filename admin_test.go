@@ -401,8 +401,8 @@ func TestRouting(t *testing.T) {
 	if !strings.Contains(form, `type="password"`) {
 		t.Error("the credential column is not a password field")
 	}
-	if strings.Contains(form, "Avatar") {
-		t.Error("the binary column is offered in the form")
+	if !strings.Contains(form, "Avatar") || !strings.Contains(form, "Hexadecimal bytes") {
+		t.Error("the binary column is not a hex field")
 	}
 	// Asked for by the script, a page comes without its frame.
 	fragment := do(a, "GET", "/admin/t/users/new", modalHeader, "1").Body.String()

@@ -7,7 +7,7 @@ nullability, defaults, primary keys, foreign keys, enums) and serves a
 CRUD interface for it as a plain `http.Handler`. There is no ORM, no model
 registration and no code generation: the database is the source of truth.
 
-- PostgreSQL and SQLite, behind a `Dialect` interface.
+- PostgreSQL, SQLite and MySQL, behind a `Dialect` interface.
 - The core module imports only the Go standard library. It never imports a
   database driver; you bring your own.
 - Server-rendered HTML, one CSS file, one small script. No build step. Every
@@ -27,6 +27,8 @@ import (
 
 	"github.com/Uktupus/schemadmin"
 	"github.com/Uktupus/schemadmin/postgres"
+	// "github.com/Uktupus/schemadmin/sqlite"
+	// "github.com/Uktupus/schemadmin/mysql"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -72,13 +74,20 @@ The example seeds a small shop into a temporary SQLite file.
   column header: equals, contains, a range for numbers and dates, NULL or
   not NULL, and one-click values for enums and booleans. The whole state of
   a list lives in its URL, so a filtered view can be bookmarked or shared.
+- **Export** downloads the current filter as CSV. **Bulk delete** selects
+  rows on the page and removes them in one request (capped by
+  `Config.BulkLimit`).
 - **Create and edit** forms generated from column types, with validation
   before the database is asked, and the database's own constraints reported
-  in plain language after. Foreign keys are a select of the referenced
-  rows, or a search-as-you-type field when there are more than 100.
+  in plain language after. Foreign keys (including composite ones) are a
+  select of the referenced rows, or a search-as-you-type field when there
+  are more than 100. Binary columns are edited as hexadecimal.
 - **Delete** behind a confirmation that counts the rows referring to the
-  one being deleted and says what the database will do with them: delete
-  them too, set them to NULL, or refuse.
+  one being deleted, including those removed only by a cascade chain, and
+  says what the database will do with them.
+- **Views** appear alongside tables and are always read-only.
+- **Reload schema** (`Config.AllowReload` or `Admin.Reload`) re-runs
+  introspection without restarting the process.
 - Rows open in a dialog over the list. Without JavaScript they are ordinary
   pages at the same addresses.
 
@@ -187,28 +196,27 @@ its column is ignored and reported on the page.
 
 ## Limits
 
-- Tables only: views are not listed.
 - A row whose primary key holds NULL (SQLite permits this), and any row of
   a table without a primary key, can be read but not edited or deleted,
   because it cannot be addressed safely.
-- Binary columns show their size and cannot be edited.
-- A foreign key over several columns is edited as plain fields.
-- The delete page counts direct dependents, not what a cascade removes
-  further down.
-- The schema is read once. Restart after a migration.
-- MySQL is not supported yet.
+- Views cannot be written, even when the database would allow it.
+- A composite foreign key with more than 100 target rows is edited as a
+  typed encoded key, not a searchable select.
+- Export is CSV only, capped by `Config.ExportMax`.
+- Bulk actions are delete only.
 
 ## Development
 
 ```sh
 go test ./...                        # unit tests: no database, no dependencies
-cd integration && go test ./...      # SQLite; PostgreSQL when a server is configured
-scripts/pg-test.sh                   # the same, with a throwaway PostgreSQL server
+cd integration && go test ./...      # SQLite; Postgres/MySQL when a server is configured
+scripts/pg-test.sh                   # throwaway PostgreSQL server
+scripts/mysql-test.sh                # throwaway MySQL server
 ```
 
-The PostgreSQL tests run under both pgx and lib/pq. To use your own server,
-set `SCHEMADMIN_POSTGRES_DSN` to a `postgres://` URL of a role that may
-create databases.
+PostgreSQL tests run under both pgx and lib/pq. Set
+`SCHEMADMIN_POSTGRES_DSN` or `SCHEMADMIN_MYSQL_DSN` to use your own server
+(a role that may create databases).
 
 ## License
 
